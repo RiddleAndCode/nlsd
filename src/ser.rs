@@ -227,7 +227,7 @@ where
         name: &'static str,
         _: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
-        Err(Error::Unimplemented)
+        Ok(Compound::new(self, Some(name)))
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
@@ -274,12 +274,12 @@ where
 
     fn serialize_struct_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _: &'static str,
+        _: u32,
         variant: &'static str,
-        len: usize,
+        _: usize,
     ) -> Result<Self::SerializeStructVariant, Self::Error> {
-        Err(Error::Unimplemented)
+        Ok(Compound::new(self, Some(variant)))
     }
 
     fn serialize_newtype_variant<T: ?Sized>(
@@ -375,6 +375,7 @@ where
                 format_str(&self.serializer.parent_scope())
             ))?;
             self.is_new_scope = false;
+            self.is_leaf = false;
         }
         Ok(())
     }
@@ -393,7 +394,6 @@ where
         value.serialize(&mut serializer)?;
         self.buffer = serializer.writer;
         if serializer.context.len() > self.serializer.context.len() {
-            self.is_leaf = false;
             self.is_new_scope = true;
         }
         let _ = self.serializer.context.pop();
@@ -568,16 +568,23 @@ where
 
     fn serialize_field<T: ?Sized>(
         &mut self,
-        _key: &'static str,
-        _value: &T,
+        key: &'static str,
+        value: &T,
     ) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        self.init_object();
+        self.the_key(key)?;
+        self.of_scope()?;
+        self.is()?;
+        self.value(value)?;
+        Ok(())
     }
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+    fn end(mut self) -> Result<Self::Ok, Self::Error> {
+        self.the_object()?;
+        self.contents()?;
+        Ok(())
     }
 }
 
@@ -590,16 +597,16 @@ where
 
     fn serialize_field<T: ?Sized>(
         &mut self,
-        _key: &'static str,
-        _value: &T,
+        key: &'static str,
+        value: &T,
     ) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeStruct>::serialize_field(self, key, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeStruct>::end(self)
     }
 }
 
@@ -750,6 +757,19 @@ pub mod tests {
             to_string(&map)?,
             "the object where the 'a' is 1.2 and the 'b' is 10"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_struct() -> Result<()> {
+        #[derive(Serialize)]
+        struct User {
+            id: i32,
+            name: String,
+            roles: Vec<String>,
+        };
+
+        assert_eq!(to_string(&User { id: 1, name: "user".to_string(), roles: vec!["Admin".to_string()] })?, "the 'user' where the 'id' is 1 and the 'name' is 'user' and the 'roles' is the list where an item is 'Admin'");
         Ok(())
     }
 }
