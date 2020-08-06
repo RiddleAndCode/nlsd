@@ -5,6 +5,7 @@ use std::{fmt, io};
 pub enum Error {
     Custom(String),
     Io(io::Error),
+    UnexpectedKeyType,
     Unimplemented,
 }
 
@@ -30,6 +31,7 @@ impl fmt::Display for Error {
         match self {
             Self::Custom(msg) => f.write_fmt(format_args!("custom: {}", msg)),
             Self::Io(err) => f.write_fmt(format_args!("io: {}", err)),
+            Self::UnexpectedKeyType => f.write_str("keys can only be string like"),
             Self::Unimplemented => f.write_str("UNIMPLEMENTED"),
         }
     }

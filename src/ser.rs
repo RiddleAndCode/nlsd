@@ -41,6 +41,14 @@ impl<W> Serializer<W> {
         }
     }
 
+    fn push_object_context(&mut self) {
+        if self.context.is_empty() {
+            self.context.push("the object".to_string());
+        } else {
+            self.context.push("object".to_string());
+        }
+    }
+
     fn current_scope(&self) -> String {
         self.context.join(" ")
     }
@@ -174,7 +182,7 @@ where
     }
 
     fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        Err(Error::Unimplemented)
+        Ok(Compound::new(self, None))
     }
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
@@ -223,7 +231,7 @@ where
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
-        self.serialize_str(name)
+        self.serialize_str(&humanize(name))
     }
 
     fn serialize_unit_variant(
@@ -232,7 +240,7 @@ where
         _: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        self.serialize_str(variant)
+        self.serialize_str(&humanize(variant))
     }
 
     fn serialize_tuple_struct(
@@ -302,6 +310,16 @@ where
         }
     }
 
+    fn init_object(&mut self) {
+        if self.index == 0 {
+            if let Some(name) = self.name {
+                self.serializer.push_named_context(name)
+            } else {
+                self.serializer.push_object_context()
+            }
+        }
+    }
+
     fn an_item(&mut self) -> Result<()> {
         if self.index == 0 {
             self.buffer.write_all(b" where an ")?;
@@ -311,6 +329,42 @@ where
         self.buffer.write_all(b"item ")?;
         self.index += 1;
         self.serializer.context.push(format!("item {}", self.index));
+        Ok(())
+    }
+
+    fn the_key<T: ?Sized>(&mut self, name: &T) -> Result<()>
+    where
+        T: ser::Serialize,
+    {
+        if self.index == 0 {
+            self.buffer.write_all(b" where ")?;
+        } else {
+            self.buffer.write_all(b" and ")?;
+        }
+
+        let mut serialized_name = Vec::new();
+        name.serialize(&mut Serializer::new(&mut serialized_name))?;
+        let name = humanize(&unsafe {
+            // We do not emit invalid UTF-8.
+            String::from_utf8_unchecked(serialized_name)
+        });
+
+        if !(name.starts_with('\'') && name.ends_with('\'') && name.len() > 1) {
+            return Err(Error::UnexpectedKeyType);
+        }
+        let name = name[1..name.len() - 1].to_string();
+
+        // or other verbs?
+        if name.starts_with("is ") {
+            self.buffer
+                .write_fmt(format_args!("{} ", format_str(&name)))?;
+        } else {
+            self.buffer
+                .write_fmt(format_args!("the {} ", format_str(&name)))?;
+        }
+
+        self.index += 1;
+        self.serializer.context.push(name);
         Ok(())
     }
 
@@ -351,6 +405,24 @@ where
             format_str(&humanize(name))
         } else {
             "list".to_string()
+        };
+        if self.index > 0 {
+            self.serializer
+                .writer
+                .write_all(format!("the {}", name).as_ref())?;
+        } else {
+            self.serializer
+                .writer
+                .write_all(format!("the empty {}", name).as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn the_object(&mut self) -> Result<()> {
+        let name = if let Some(name) = self.name {
+            format_str(&humanize(name))
+        } else {
+            "object".to_string()
         };
         if self.index > 0 {
             self.serializer
@@ -463,20 +535,27 @@ where
     type Ok = ();
     type Error = Error;
 
-    fn serialize_key<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_key<T: ?Sized>(&mut self, key: &T) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        self.init_object();
+        self.the_key(key)?;
+        self.of_scope()?;
+        Ok(())
     }
-    fn serialize_value<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_value<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        self.is()?;
+        self.value(value)?;
+        Ok(())
     }
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+    fn end(mut self) -> Result<Self::Ok, Self::Error> {
+        self.the_object()?;
+        self.contents()?;
+        Ok(())
     }
 }
 
@@ -529,6 +608,7 @@ pub mod tests {
     use super::*;
     use crate::helpers::to_string;
     use serde::Serialize;
+    use std::collections::BTreeMap;
 
     #[test]
     fn humanize_string() {
@@ -611,9 +691,64 @@ pub mod tests {
     fn serialize_tuple_struct() -> Result<()> {
         #[derive(Serialize)]
         struct Example(bool, u8, String);
+
+        #[derive(Serialize)]
+        enum ExampleEnum {
+            Example(bool, u8, String),
+            SampleCool(String, char),
+        }
+
         assert_eq!(
             to_string(&Example(true, 1, "cool".to_string()))?,
             "the 'example' where an item is true and another item is 1 and another item is 'cool'"
+        );
+        assert_eq!(
+            to_string(&ExampleEnum::Example(true, 1, "cool".to_string()))?,
+            "the 'example' where an item is true and another item is 1 and another item is 'cool'"
+        );
+        assert_eq!(
+            to_string(&ExampleEnum::SampleCool("nice".to_string(), 'c'))?,
+            "the 'sample cool' where an item is 'nice' and another item is 'c'"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_unit_struct() -> Result<()> {
+        #[derive(Serialize)]
+        struct Example;
+
+        #[derive(Serialize)]
+        enum ExampleEnum {
+            Example,
+            SampleCool,
+        }
+
+        assert_eq!(to_string(&Example)?, "'example'");
+        assert_eq!(to_string(&ExampleEnum::Example)?, "'example'");
+        assert_eq!(to_string(&ExampleEnum::SampleCool)?, "'sample cool'");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_map() -> Result<()> {
+        let mut map = BTreeMap::new();
+        assert_eq!(to_string(&map)?, "the empty object");
+        map.insert("key", "value");
+        assert_eq!(to_string(&map)?, "the object where the 'key' is 'value'");
+        map.insert("second_key", "second value");
+        assert_eq!(
+            to_string(&map)?,
+            "the object where the 'key' is 'value' and the 'second key' is 'second value'"
+        );
+
+        let mut map = BTreeMap::new();
+        map.insert('a', 1.2);
+        assert_eq!(to_string(&map)?, "the object where the 'a' is 1.2");
+        map.insert('b', 10.);
+        assert_eq!(
+            to_string(&map)?,
+            "the object where the 'a' is 1.2 and the 'b' is 10"
         );
         Ok(())
     }
