@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::error::{Error, Result};
 use serde::ser;
 use std::io::Write;
 
@@ -9,6 +9,7 @@ pub struct Serializer<W> {
 
 pub struct Compound<'a, W> {
     serializer: &'a mut Serializer<W>,
+    name: Option<&'static str>,
     index: usize,
     is_leaf: bool,
     is_new_scope: bool,
@@ -23,12 +24,81 @@ impl<W> Serializer<W> {
     fn with_context(writer: W, context: Vec<String>) -> Self {
         Self { context, writer }
     }
+
+    fn push_named_context(&mut self, name: &str) {
+        if self.context.is_empty() {
+            self.context.push(format!("the {}", humanize(name)));
+        } else {
+            self.context.push(humanize(name));
+        }
+    }
+
+    fn push_list_context(&mut self) {
+        if self.context.is_empty() {
+            self.context.push("the list".to_string());
+        } else {
+            self.context.push("list".to_string());
+        }
+    }
+
+    fn current_scope(&self) -> String {
+        self.context.join(" ")
+    }
+
+    fn parent_scope(&self) -> String {
+        if self.context.is_empty() {
+            String::default()
+        } else {
+            self.context[0..self.context.len() - 1].join(" ")
+        }
+    }
+}
+
+fn format_str(string: &str) -> String {
+    format!("'{}'", string.replace('\'', r"\'"))
+}
+
+fn humanize(string: &str) -> String {
+    let mut out = String::new();
+    let mut buffer = String::new();
+    for ch in string.chars() {
+        if ch == '_' {
+            out.push(' ');
+        } else if ch.is_whitespace() {
+            out.push(ch);
+        } else if ch.is_uppercase() {
+            buffer.push(ch);
+        } else if buffer.len() > 2 {
+            let last = buffer.pop().unwrap();
+            out.push(' ');
+            out.push_str(&buffer);
+            buffer.clear();
+            out.push(' ');
+            out.push_str(&last.to_lowercase().to_string());
+            out.push(ch);
+        } else if !buffer.is_empty() {
+            for bch in buffer.chars() {
+                out.push(' ');
+                out.push_str(&bch.to_lowercase().to_string());
+            }
+            buffer.clear();
+            out.push(ch);
+        } else {
+            out.push(ch)
+        }
+    }
+    if !buffer.is_empty() {
+        out.push(' ');
+        out.push_str(&buffer);
+    }
+    out.trim().to_string()
 }
 
 impl<'a, W> Compound<'a, W> {
-    pub fn new(serializer: &'a mut Serializer<W>) -> Self {
+    pub fn new(serializer: &'a mut Serializer<W>, name: Option<&'static str>) -> Self {
         Self {
             serializer,
+            name,
             index: 0,
             is_leaf: true,
             is_new_scope: false,
@@ -95,20 +165,15 @@ where
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        self.writer
-            .write_fmt(format_args!("'{}'", v.replace('\'', r"\'")))?;
+        self.writer.write_all(format_str(v).as_ref())?;
         Ok(())
     }
 
     fn serialize_seq(self, _: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        self.writer.write_all(b"the list")?;
-        if self.context.is_empty() {
-            self.context.push("the list".to_string());
-        }
-        Ok(Compound::new(self))
+        Ok(Compound::new(self, None))
     }
 
-    fn serialize_map(self, len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
+    fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
         Err(Error::Unimplemented)
     }
 
@@ -141,51 +206,51 @@ where
         Ok(())
     }
 
-    fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
         Err(Error::Unimplemented)
     }
 
-    fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
-        Err(Error::Unimplemented)
+    fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> {
+        Ok(Compound::new(self, None))
     }
 
     fn serialize_struct(
         self,
         name: &'static str,
-        len: usize,
+        _: usize,
     ) -> Result<Self::SerializeStruct, Self::Error> {
         Err(Error::Unimplemented)
     }
 
     fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+        self.serialize_str(name)
     }
 
     fn serialize_unit_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _: &'static str,
+        _: u32,
         variant: &'static str,
     ) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+        self.serialize_str(variant)
     }
 
     fn serialize_tuple_struct(
         self,
         name: &'static str,
-        len: usize,
+        _: usize,
     ) -> Result<Self::SerializeTupleStruct, Self::Error> {
-        Err(Error::Unimplemented)
+        Ok(Compound::new(self, Some(name)))
     }
 
     fn serialize_tuple_variant(
         self,
-        name: &'static str,
-        variant_index: u32,
+        _: &'static str,
+        _: u32,
         variant: &'static str,
-        len: usize,
+        _: usize,
     ) -> Result<Self::SerializeTupleVariant, Self::Error> {
-        Err(Error::Unimplemented)
+        Ok(Compound::new(self, Some(variant)))
     }
 
     fn serialize_newtype_struct<T: ?Sized>(
@@ -223,6 +288,94 @@ where
     }
 }
 
+impl<'a, W> Compound<'a, W>
+where
+    W: Write,
+{
+    fn init_list(&mut self) {
+        if self.index == 0 {
+            if let Some(name) = self.name {
+                self.serializer.push_named_context(name)
+            } else {
+                self.serializer.push_list_context()
+            }
+        }
+    }
+
+    fn an_item(&mut self) -> Result<()> {
+        if self.index == 0 {
+            self.buffer.write_all(b" where an ")?;
+        } else {
+            self.buffer.write_all(b" and another ")?;
+        }
+        self.buffer.write_all(b"item ")?;
+        self.index += 1;
+        self.serializer.context.push(format!("item {}", self.index));
+        Ok(())
+    }
+
+    fn of_scope(&mut self) -> Result<()> {
+        if self.is_new_scope {
+            self.buffer.write_fmt(format_args!(
+                "of {} ",
+                format_str(&self.serializer.parent_scope())
+            ))?;
+            self.is_new_scope = false;
+        }
+        Ok(())
+    }
+
+    fn is(&mut self) -> Result<()> {
+        self.buffer.write_all(b"is ")?;
+        Ok(())
+    }
+
+    fn value<T: ?Sized>(&mut self, value: &T) -> Result<()>
+    where
+        T: ser::Serialize,
+    {
+        let mut serializer =
+            Serializer::with_context(self.buffer.clone(), self.serializer.context.clone());
+        value.serialize(&mut serializer)?;
+        self.buffer = serializer.writer;
+        if serializer.context.len() > self.serializer.context.len() {
+            self.is_leaf = false;
+            self.is_new_scope = true;
+        }
+        let _ = self.serializer.context.pop();
+        Ok(())
+    }
+
+    fn the_list(&mut self) -> Result<()> {
+        let name = if let Some(name) = self.name {
+            format_str(&humanize(name))
+        } else {
+            "list".to_string()
+        };
+        if self.index > 0 {
+            self.serializer
+                .writer
+                .write_all(format!("the {}", name).as_ref())?;
+        } else {
+            self.serializer
+                .writer
+                .write_all(format!("the empty {}", name).as_ref())?;
+        }
+        Ok(())
+    }
+
+    fn contents(&mut self) -> Result<()> {
+        if !self.is_leaf {
+            self.serializer.writer.write_fmt(format_args!(
+                " henceforth {}",
+                format_str(&self.serializer.current_scope())
+            ))?;
+        }
+        self.serializer.writer.write_all(&self.buffer)?;
+        Ok(())
+    }
+}
+
 impl<'a, W> ser::SerializeSeq for Compound<'a, W>
 where
     W: Write,
@@ -234,27 +387,17 @@ where
     where
         T: ser::Serialize,
     {
-        if self.index == 0 {
-            self.buffer.write_all(b" where an ")?;
-        } else {
-            self.buffer.write_all(b" and another ")?;
-        }
-        self.buffer.write_all(b"item ")?;
-        // TODO check if new scope and add "of 'scope'"
-        self.buffer.write_all(b"is ")?;
-        self.index += 1;
-
-        let mut context = self.serializer.context.clone();
-        context.push(format!("item {}", self.index));
-        let mut serializer =
-            Serializer::with_context(self.buffer.clone(), self.serializer.context.clone());
-        value.serialize(&mut serializer)?;
-        self.buffer = serializer.writer;
+        self.init_list();
+        self.an_item()?;
+        self.of_scope()?;
+        self.is()?;
+        self.value(value)?;
         Ok(())
     }
-    fn end(self) -> Result<Self::Ok, Self::Error> {
-        // TODO check if is leaf and append "henceforth 'scope' if not"
-        self.serializer.writer.write_all(&self.buffer)?;
+
+    fn end(mut self) -> Result<Self::Ok, Self::Error> {
+        self.the_list()?;
+        self.contents()?;
         Ok(())
     }
 }
@@ -266,14 +409,14 @@ where
     type Ok = ();
     type Error = Error;
 
-    fn serialize_element<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeSeq>::serialize_element(self, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeSeq>::end(self)
     }
 }
 
@@ -284,14 +427,14 @@ where
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeSeq>::serialize_element(self, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeSeq>::end(self)
     }
 }
 
@@ -302,14 +445,14 @@ where
     type Ok = ();
     type Error = Error;
 
-    fn serialize_field<T: ?Sized>(&mut self, _value: &T) -> Result<(), Self::Error>
+    fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<(), Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeSeq>::serialize_element(self, value)
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        Err(Error::Unimplemented)
+        <Self as ser::SerializeSeq>::end(self)
     }
 }
 
@@ -378,5 +521,100 @@ where
     }
     fn end(self) -> Result<Self::Ok, Self::Error> {
         Err(Error::Unimplemented)
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use crate::helpers::to_string;
+    use serde::Serialize;
+
+    #[test]
+    fn humanize_string() {
+        assert_eq!(humanize("UpperCamelCase"), "upper camel case");
+        assert_eq!(humanize("camelCase"), "camel case");
+        assert_eq!(humanize("snake_case"), "snake case");
+        assert_eq!(humanize("CamelCaseWithACRONYM"), "camel case with ACRONYM");
+        assert_eq!(humanize("middleACRONYMHere"), "middle ACRONYM here");
+        assert_eq!(humanize("ACROBeginning"), "ACRO beginning");
+        assert_eq!(humanize("__some_padded_name"), "some padded name");
+    }
+
+    #[test]
+    fn serialize_bool() -> Result<()> {
+        assert_eq!(to_string(&true)?, "true");
+        assert_eq!(to_string(&false)?, "false");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_num() -> Result<()> {
+        assert_eq!(to_string(&0)?, "0");
+        assert_eq!(to_string(&1)?, "1");
+        assert_eq!(to_string(&-1)?, "-1");
+        assert_eq!(to_string(&12)?, "12");
+        assert_eq!(to_string(&-13)?, "-13");
+        assert_eq!(to_string(&1.5)?, "1.5");
+        assert_eq!(to_string(&1.0)?, "1");
+        assert_eq!(to_string(&0.1)?, "0.1");
+        assert_eq!(to_string(&-1.5)?, "-1.5");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_empty() -> Result<()> {
+        assert_eq!(to_string(&())?, "empty");
+        assert_eq!(to_string(&Option::<()>::None)?, "nothing");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_str() -> Result<()> {
+        assert_eq!(to_string(&'a')?, "'a'");
+        assert_eq!(to_string("")?, "''");
+        assert_eq!(to_string("cool")?, "'cool'");
+        assert_eq!(to_string("don't")?, r"'don\'t'");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_list() -> Result<()> {
+        assert_eq!(to_string(&Vec::<u8>::default())?, "the empty list");
+        assert_eq!(
+            to_string(&vec![1, 2, 3])?,
+            "the list where an item is 1 and another item is 2 and another item is 3"
+        );
+        assert_eq!(to_string(&vec![vec![1, 2], vec![], vec![3, 4]])?, "the list henceforth 'the list' where an item is the list where an item is 1 and another item is 2 and another item of 'the list' is the empty list and another item is the list where an item is 3 and another item is 4");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_tuple() -> Result<()> {
+        assert_eq!(to_string(&())?, "empty");
+        assert_eq!(
+            to_string(&(1, 2, 3))?,
+            "the list where an item is 1 and another item is 2 and another item is 3"
+        );
+        assert_eq!(
+            to_string(&(1, "string", true))?,
+            "the list where an item is 1 and another item is 'string' and another item is true"
+        );
+        assert_eq!(
+        to_string(&((), (1, "cool"), (true, 4)))?,
+        "the list henceforth 'the list' where an item is empty and another item is the list where an item is 1 and another item is 'cool' and another item of 'the list' is the list where an item is true and another item is 4"
+    );
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_tuple_struct() -> Result<()> {
+        #[derive(Serialize)]
+        struct Example(bool, u8, String);
+        assert_eq!(
+            to_string(&Example(true, 1, "cool".to_string()))?,
+            "the 'example' where an item is true and another item is 1 and another item is 'cool'"
+        );
+        Ok(())
     }
 }
