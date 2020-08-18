@@ -1,4 +1,4 @@
-use serde::ser;
+use serde::{de, ser};
 use std::{fmt, io};
 
 #[derive(Debug)]
@@ -18,6 +18,15 @@ impl From<io::Error> for Error {
 }
 
 impl ser::Error for Error {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: fmt::Display,
+    {
+        Self::Custom(msg.to_string())
+    }
+}
+
+impl de::Error for Error {
     fn custom<T>(msg: T) -> Self
     where
         T: fmt::Display,

@@ -263,13 +263,13 @@ where
 
     fn serialize_newtype_struct<T: ?Sized>(
         self,
-        name: &'static str,
+        _: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        value.serialize(self)
     }
 
     fn serialize_struct_variant(
@@ -284,15 +284,16 @@ where
 
     fn serialize_newtype_variant<T: ?Sized>(
         self,
-        name: &'static str,
-        variant_index: u32,
-        variant: &'static str,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: ser::Serialize,
     {
-        Err(Error::Unimplemented)
+        // TODO I don't know if this is right :/
+        value.serialize(self)
     }
 }
 
