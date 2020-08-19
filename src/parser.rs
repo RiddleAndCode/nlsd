@@ -401,6 +401,33 @@ mod tests {
             (0, Parsed::Number(Number::Integer(0)), ""),
             parse_next("0")?
         );
+        assert_eq!(
+            (0, Parsed::Number(Number::Float(1.)), ""),
+            parse_next("1.0")?
+        );
+        assert_eq!(
+            (1, Parsed::Str("hello, world"), ""),
+            parse_next("'hello, world'")?
+        );
+        assert_eq!((0, Parsed::Token("token"), ""), parse_next("token")?);
+
+        assert_eq!(
+            (0, Parsed::Number(Number::Integer(0)), "token"),
+            parse_next("0 token")?
+        );
+        assert_eq!(
+            (0, Parsed::Number(Number::Float(1.)), "token"),
+            parse_next("1.0 token")?
+        );
+        assert_eq!(
+            (1, Parsed::Str("hello, world"), "token"),
+            parse_next("'hello, world' token")?
+        );
+        assert_eq!(
+            (0, Parsed::Token("token"), "token2"),
+            parse_next("token token2")?
+        );
+
         Ok(())
     }
 }
