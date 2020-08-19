@@ -394,4 +394,13 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn parse_nexts() -> Result<(), ParseError> {
+        assert_eq!(
+            (0, Parsed::Number(Number::Integer(0)), ""),
+            parse_next("0")?
+        );
+        Ok(())
+    }
 }
