@@ -1,10 +1,14 @@
-#[derive(Debug, PartialEq)]
+use core::fmt;
+
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Number {
     Float(f64),
     Integer(i64),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum Parsed<'a> {
     Token(&'a str),
     Str(&'a str),
@@ -12,14 +16,16 @@ pub enum Parsed<'a> {
 }
 
 #[derive(Debug)]
-enum ParseError {
+pub enum ParseError {
     UnexpectedEof,
     InvalidString(usize),
     InvalidNumber(usize),
     ExpectedWhitespace(usize),
 }
 
-fn parse_token(src: &str) -> Result<(usize, &str, &str), ParseError> {
+pub type ParseResult<'a, T> = Result<(usize, T, &'a str), ParseError>;
+
+pub fn parse_token(src: &str) -> ParseResult<&str> {
     let mut t_start = None;
     let mut t_end = None;
     let mut end = None;
@@ -60,7 +66,7 @@ fn parse_delimited(
     start_char: char,
     end_char: char,
     escape_char: char,
-) -> Result<(usize, &str, &str), ParseError> {
+) -> ParseResult<&str> {
     let mut s_start = None;
     let mut s_end = None;
     let mut end = None;
@@ -115,7 +121,7 @@ fn parse_delimited(
     }
 }
 
-fn parse_string(src: &str) -> Result<(usize, &str, &str), ParseError> {
+pub fn parse_string(src: &str) -> ParseResult<&str> {
     let (s_start, delimiter) =
         if let Some(res) = src.chars().enumerate().find(|(_, c)| !c.is_whitespace()) {
             res
@@ -132,7 +138,7 @@ fn parse_string(src: &str) -> Result<(usize, &str, &str), ParseError> {
         .map(|(index, res, rest)| (index + s_start, res, rest))
 }
 
-fn parse_number(src: &str) -> Result<(usize, Number, &str), ParseError> {
+pub fn parse_number(src: &str) -> ParseResult<Number> {
     let (index, token, rest) = parse_token(src)?;
     if let Ok(num) = token.parse() {
         Ok((index, Number::Integer(num), rest))
@@ -143,7 +149,7 @@ fn parse_number(src: &str) -> Result<(usize, Number, &str), ParseError> {
     }
 }
 
-fn parse_next(src: &str) -> Result<(usize, Parsed, &str), ParseError> {
+pub fn parse_next(src: &str) -> ParseResult<Parsed> {
     if let Ok((index, string, rest)) = parse_string(src) {
         Ok((index, Parsed::Str(string), rest))
     } else if let Ok((index, num, rest)) = parse_number(src) {
@@ -152,6 +158,25 @@ fn parse_next(src: &str) -> Result<(usize, Parsed, &str), ParseError> {
         parse_token(src).map(|(index, token, rest)| (index, Parsed::Token(token), rest))
     }
 }
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::UnexpectedEof => f.write_str("unexpected end of file"),
+            ParseError::InvalidString(i) => {
+                f.write_fmt(format_args!("invalid string at column {}", i + 1))
+            }
+            ParseError::InvalidNumber(i) => {
+                f.write_fmt(format_args!("invalid number at column {}", i + 1))
+            }
+            ParseError::ExpectedWhitespace(i) => {
+                f.write_fmt(format_args!("expected whitespace at column {}", i + 1))
+            }
+        }
+    }
+}
+
+impl std::error::Error for ParseError {}
 
 #[cfg(test)]
 mod tests {
