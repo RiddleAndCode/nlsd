@@ -1,7 +1,16 @@
+use crate::de::Deserializer;
 use crate::error::Result;
 use crate::ser::Serializer;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::io::Write;
+
+pub fn from_str<'de, T>(s: &'de str) -> Result<T>
+where
+    T: Deserialize<'de>,
+{
+    let mut deserializer = Deserializer::from_str(s);
+    T::deserialize(&mut deserializer)
+}
 
 pub fn to_string<T: ?Sized>(value: &T) -> Result<String>
 where

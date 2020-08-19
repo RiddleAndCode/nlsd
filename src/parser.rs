@@ -1,14 +1,12 @@
 use core::fmt;
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, PartialEq)]
 pub enum Number {
     Float(f64),
     Integer(i64),
 }
 
-#[derive(Debug)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Parsed<'a> {
     Token(&'a str),
     Str(&'a str),
@@ -164,19 +162,21 @@ impl fmt::Display for ParseError {
         match self {
             ParseError::UnexpectedEof => f.write_str("unexpected end of file"),
             ParseError::InvalidString(i) => {
-                f.write_fmt(format_args!("invalid string at column {}", i + 1))
+                f.write_fmt(format_args!("invalid string at character {}", i + 1))
             }
             ParseError::InvalidNumber(i) => {
-                f.write_fmt(format_args!("invalid number at column {}", i + 1))
+                f.write_fmt(format_args!("invalid number at character {}", i + 1))
             }
             ParseError::ExpectedWhitespace(i) => {
-                f.write_fmt(format_args!("expected whitespace at column {}", i + 1))
+                f.write_fmt(format_args!("expected whitespace at character {}", i + 1))
             }
         }
     }
 }
 
 impl std::error::Error for ParseError {}
+
+impl Eq for Number {}
 
 #[cfg(test)]
 mod tests {
@@ -389,6 +389,10 @@ mod tests {
         assert_eq!((0, Number::Float(0.), ""), parse_number("0.0")?);
         assert_eq!((0, Number::Float(1.), ""), parse_number("1.0")?);
         assert_eq!((0, Number::Float(-1.), ""), parse_number("-1.0")?);
+        assert_eq!((0, Number::Integer(123), ""), parse_number("123")?);
+        assert_eq!((0, Number::Integer(-123), ""), parse_number("-123")?);
+        assert_eq!((0, Number::Float(123.123), ""), parse_number("123.123")?);
+        assert_eq!((0, Number::Float(-123.123), ""), parse_number("-123.123")?);
 
         assert_eq!((1, Number::Integer(1), ""), parse_number(" 1")?);
         assert_eq!((0, Number::Integer(1), ""), parse_number("1 ")?);

@@ -1,3 +1,4 @@
+use super::parser::ParseError;
 use serde::{de, ser};
 use std::{fmt, io};
 
@@ -7,6 +8,14 @@ pub enum Error {
     Io(io::Error),
     UnexpectedKeyType,
     Unimplemented,
+    Parse(ParseError),
+    ExpectedBool,
+    ExpectedNull,
+    ExpectedInteger,
+    ExpectedFloat,
+    ExpectedUnsigned,
+    ExpectedString,
+    ExpectedChar,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -26,6 +35,12 @@ impl ser::Error for Error {
     }
 }
 
+impl From<ParseError> for Error {
+    fn from(err: ParseError) -> Self {
+        Error::Parse(err)
+    }
+}
+
 impl de::Error for Error {
     fn custom<T>(msg: T) -> Self
     where
@@ -42,6 +57,14 @@ impl fmt::Display for Error {
             Self::Io(err) => f.write_fmt(format_args!("io: {}", err)),
             Self::UnexpectedKeyType => f.write_str("keys can only be string like"),
             Self::Unimplemented => f.write_str("UNIMPLEMENTED"),
+            Self::Parse(err) => f.write_fmt(format_args!("parse error: {}", err)),
+            Self::ExpectedBool => f.write_str("expected boolean"),
+            Self::ExpectedNull => f.write_str("expected null"),
+            Self::ExpectedInteger => f.write_str("expected integer"),
+            Self::ExpectedFloat => f.write_str("expected float"),
+            Self::ExpectedUnsigned => f.write_str("expected unsigned"),
+            Self::ExpectedString => f.write_str("expected string"),
+            Self::ExpectedChar => f.write_str("expected char"),
         }
     }
 }
