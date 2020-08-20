@@ -230,8 +230,8 @@ where
         Ok(Compound::new(self, Some(name)))
     }
 
-    fn serialize_unit_struct(self, name: &'static str) -> Result<Self::Ok, Self::Error> {
-        self.serialize_str(&humanize(name))
+    fn serialize_unit_struct(self, _: &'static str) -> Result<Self::Ok, Self::Error> {
+        self.serialize_unit()
     }
 
     fn serialize_unit_variant(
@@ -733,7 +733,7 @@ pub mod tests {
             SampleCool,
         }
 
-        assert_eq!(to_string(&Example)?, "`example`");
+        assert_eq!(to_string(&Example)?, "empty");
         assert_eq!(to_string(&ExampleEnum::Example)?, "`example`");
         assert_eq!(to_string(&ExampleEnum::SampleCool)?, "`sample cool`");
         Ok(())

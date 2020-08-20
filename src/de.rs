@@ -339,9 +339,75 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_char(ch)
     }
 
+    fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.peek_next()? {
+            Parsed::Token(string) => match string {
+                EMPTY | NOTHING => {
+                    let _ = self.parse_next()?;
+                    return visitor.visit_none();
+                }
+                _ => (),
+            },
+            _ => (),
+        }
+        visitor.visit_some(self)
+    }
+
+    fn deserialize_unit_struct<V>(
+        self,
+        _: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.deserialize_unit(visitor)
+    }
+
+    fn deserialize_newtype_struct<V>(
+        self,
+        _: &'static str,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_newtype_struct(self)
+    }
+
+    fn deserialize_identifier<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.deserialize_str(visitor)
+    }
+
+    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.deserialize_any(visitor)
+    }
+
+    fn deserialize_bytes<V>(self, _: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        return Err(Error::Unimplemented);
+    }
+
+    fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        return Err(Error::Unimplemented);
+    }
+
     serde::forward_to_deserialize_any! {
-        bytes byte_buf option unit_struct newtype_struct seq tuple
-        tuple_struct map struct enum identifier ignored_any
+        seq tuple tuple_struct map struct enum
     }
 }
 
@@ -426,6 +492,19 @@ mod tests {
     fn deserialize_char() -> Result<()> {
         assert_eq!('a', from_str::<char>("`a`")?);
         assert_eq!(json!("a"), from_str::<Value>("`a`")?);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_option() -> Result<()> {
+        assert_eq!(
+            Some("hello".to_string()),
+            from_str::<Option<String>>("`hello`")?
+        );
+        assert_eq!(Some(123), from_str::<Option<i64>>("123")?);
+        assert_eq!(Some(123.123), from_str::<Option<f64>>("123.123")?);
+        assert_eq!(None, from_str::<Option<i64>>("empty")?);
+        assert_eq!(None, from_str::<Option<i64>>("nothing")?);
         Ok(())
     }
 }
