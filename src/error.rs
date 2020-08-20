@@ -14,8 +14,12 @@ pub enum Error {
     ExpectedInteger,
     ExpectedFloat,
     ExpectedUnsigned,
-    ExpectedString,
     ExpectedChar,
+    ExpectedString,
+    ExpectedKeyWord(&'static str),
+    ExpectedObjectDescriptor,
+    ExpectedObjectEntry,
+    ExpectedListItem,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -63,8 +67,14 @@ impl fmt::Display for Error {
             Self::ExpectedInteger => f.write_str("expected integer"),
             Self::ExpectedFloat => f.write_str("expected float"),
             Self::ExpectedUnsigned => f.write_str("expected unsigned"),
-            Self::ExpectedString => f.write_str("expected string"),
             Self::ExpectedChar => f.write_str("expected char"),
+            Self::ExpectedString => f.write_str("expected string"),
+            Self::ExpectedKeyWord(keyword) => {
+                f.write_fmt(format_args!("expected keyword '{}'", keyword))
+            }
+            Self::ExpectedObjectDescriptor => f.write_str("expected object descriptor"),
+            Self::ExpectedObjectEntry => f.write_str("expected object entry"),
+            Self::ExpectedListItem => f.write_str("expected list item"),
         }
     }
 }

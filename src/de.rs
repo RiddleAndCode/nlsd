@@ -26,9 +26,11 @@ const IS: &str = "is";
 const AND: &str = "and";
 const ANOTHER: &str = "another";
 
+#[derive(Debug)]
 pub struct Deserializer<'de> {
     src: &'de str,
     index: usize,
+    scope: Option<&'de str>,
 }
 
 fn unescape_str(string: &str) -> String {
@@ -37,7 +39,11 @@ fn unescape_str(string: &str) -> String {
 
 impl<'de> Deserializer<'de> {
     pub fn from_str(src: &'de str) -> Self {
-        Self { src, index: 0 }
+        Self {
+            src,
+            index: 0,
+            scope: None,
+        }
     }
 
     fn peek_next(&self) -> Result<Parsed<'de>> {
@@ -92,6 +98,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             Parsed::Token(token) => match token {
                 TRUE | FALSE | ON | OFF | ENABLED | DISABLED => self.deserialize_bool(visitor),
                 EMPTY | NOTHING => self.deserialize_unit(visitor),
+                THE => {
+                    let mut compound = Compound::new(self);
+                    compound.describe()?;
+                    if compound.is_list() {
+                        visitor.visit_seq(compound)
+                    } else {
+                        todo!()
+                    }
+                }
                 _ => Err(Error::Unimplemented),
             },
             Parsed::Number(Number::Float(_)) => self.deserialize_f64(visitor),
@@ -406,8 +421,127 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         return Err(Error::Unimplemented);
     }
 
+    fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_seq(Compound::new(self))
+    }
+
     serde::forward_to_deserialize_any! {
-        seq tuple tuple_struct map struct enum
+        tuple tuple_struct map struct enum
+    }
+}
+
+enum CompoundKind {
+    List,
+    Object,
+}
+
+struct Compound<'a, 'de> {
+    de: &'a mut Deserializer<'de>,
+    name: Option<&'de str>,
+    scope: Option<&'de str>,
+    kind: Option<CompoundKind>,
+    is_empty: bool,
+}
+
+impl<'a, 'de> Compound<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>) -> Self {
+        Self {
+            de,
+            name: None,
+            scope: None,
+            kind: None,
+            is_empty: false,
+        }
+    }
+
+    fn is_list(&self) -> bool {
+        self.is_empty || matches!(self.kind, Some(CompoundKind::List))
+    }
+
+    fn is_object(&self) -> bool {
+        self.is_empty || matches!(self.kind, Some(CompoundKind::Object))
+    }
+
+    fn is_described(&self) -> bool {
+        self.kind.is_some() || self.is_empty
+    }
+
+    fn describe(&mut self) -> Result<()> {
+        if self.de.parse_token()? != THE {
+            return Err(Error::ExpectedKeyWord(THE));
+        }
+        match self.de.peek_next()? {
+            Parsed::Token(EMPTY) => {
+                println!("{}", &self.de.src[self.de.index..]);
+                let _ = self.de.parse_token()?;
+                println!("{}", &self.de.src[self.de.index..]);
+                self.is_empty = true;
+            }
+            _ => (),
+        }
+        match self.de.parse_next()? {
+            Parsed::Token(token) => match token {
+                LIST => {
+                    self.kind = Some(CompoundKind::List);
+                }
+                OBJECT => {
+                    self.kind = Some(CompoundKind::Object);
+                }
+                _ => return Err(Error::ExpectedObjectDescriptor),
+            },
+            Parsed::Str(name) => self.name = Some(name),
+            _ => return Err(Error::ExpectedObjectDescriptor),
+        };
+        match self.de.peek_next() {
+            Ok(Parsed::Token(HENCEFORTH)) => {
+                self.de.parse_next()?;
+                match self.de.parse_next()? {
+                    Parsed::Str(string) => self.scope = Some(string),
+                    _ => return Err(Error::ExpectedString),
+                }
+            }
+            _ => (),
+        }
+        if !self.is_empty {
+            match self.de.parse_token()? {
+                WHERE => (),
+                _ => return Err(Error::ExpectedKeyWord(WHERE)),
+            }
+            if self.kind.is_none() {
+                match self.de.peek_next()? {
+                    Parsed::Token(token) => match token {
+                        AN => self.kind = Some(CompoundKind::List),
+                        THE => self.kind = Some(CompoundKind::Object),
+                        _ => return Err(Error::ExpectedKeyWord(THE)),
+                    },
+                    _ => return Err(Error::ExpectedKeyWord(THE)),
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
+    type Error = Error;
+
+    fn next_element_seed<T>(&mut self, _: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        if !self.is_described() {
+            self.describe()?;
+        }
+        if self.is_empty {
+            return Ok(None);
+        }
+        if !self.is_list() {
+            return Err(Error::ExpectedListItem);
+        }
+        Ok(None)
     }
 }
 
@@ -505,6 +639,12 @@ mod tests {
         assert_eq!(Some(123.123), from_str::<Option<f64>>("123.123")?);
         assert_eq!(None, from_str::<Option<i64>>("empty")?);
         assert_eq!(None, from_str::<Option<i64>>("nothing")?);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_list() -> Result<()> {
+        assert_eq!(Vec::<i64>::new(), from_str::<Vec<i64>>("the empty list")?);
         Ok(())
     }
 }
