@@ -63,7 +63,7 @@ impl<W> Serializer<W> {
 }
 
 fn format_str(string: &str) -> String {
-    format!("'{}'", string.replace('\'', r"\'"))
+    format!("`{}`", string.replace('`', r"\`"))
 }
 
 fn humanize(string: &str) -> String {
@@ -350,7 +350,7 @@ where
             String::from_utf8_unchecked(serialized_name)
         });
 
-        if !(name.starts_with('\'') && name.ends_with('\'') && name.len() > 1) {
+        if !(name.starts_with('`') && name.ends_with('`') && name.len() > 1) {
             return Err(Error::UnexpectedKeyType);
         }
         let name = name[1..name.len() - 1].to_string();
@@ -659,10 +659,11 @@ pub mod tests {
 
     #[test]
     fn serialize_str() -> Result<()> {
-        assert_eq!(to_string(&'a')?, "'a'");
-        assert_eq!(to_string("")?, "''");
-        assert_eq!(to_string("cool")?, "'cool'");
-        assert_eq!(to_string("don't")?, r"'don\'t'");
+        assert_eq!(to_string(&'a')?, "`a`");
+        assert_eq!(to_string("")?, "``");
+        assert_eq!(to_string("cool")?, "`cool`");
+        assert_eq!(to_string("don't")?, r"`don't`");
+        assert_eq!(to_string("escaped`string")?, r"`escaped\`string`");
         Ok(())
     }
 
@@ -673,7 +674,7 @@ pub mod tests {
             to_string(&vec![1, 2, 3])?,
             "the list where an item is 1 and another item is 2 and another item is 3"
         );
-        assert_eq!(to_string(&vec![vec![1, 2], vec![], vec![3, 4]])?, "the list henceforth 'the list' where an item is the list where an item is 1 and another item is 2 and another item of 'the list' is the empty list and another item is the list where an item is 3 and another item is 4");
+        assert_eq!(to_string(&vec![vec![1, 2], vec![], vec![3, 4]])?, "the list henceforth `the list` where an item is the list where an item is 1 and another item is 2 and another item of `the list` is the empty list and another item is the list where an item is 3 and another item is 4");
         Ok(())
     }
 
@@ -686,11 +687,11 @@ pub mod tests {
         );
         assert_eq!(
             to_string(&(1, "string", true))?,
-            "the list where an item is 1 and another item is 'string' and another item is true"
+            "the list where an item is 1 and another item is `string` and another item is true"
         );
         assert_eq!(
         to_string(&((), (1, "cool"), (true, 4)))?,
-        "the list henceforth 'the list' where an item is empty and another item is the list where an item is 1 and another item is 'cool' and another item of 'the list' is the list where an item is true and another item is 4"
+        "the list henceforth `the list` where an item is empty and another item is the list where an item is 1 and another item is `cool` and another item of `the list` is the list where an item is true and another item is 4"
     );
         Ok(())
     }
@@ -708,15 +709,15 @@ pub mod tests {
 
         assert_eq!(
             to_string(&Example(true, 1, "cool".to_string()))?,
-            "the 'example' where an item is true and another item is 1 and another item is 'cool'"
+            "the `example` where an item is true and another item is 1 and another item is `cool`"
         );
         assert_eq!(
             to_string(&ExampleEnum::Example(true, 1, "cool".to_string()))?,
-            "the 'example' where an item is true and another item is 1 and another item is 'cool'"
+            "the `example` where an item is true and another item is 1 and another item is `cool`"
         );
         assert_eq!(
             to_string(&ExampleEnum::SampleCool("nice".to_string(), 'c'))?,
-            "the 'sample cool' where an item is 'nice' and another item is 'c'"
+            "the `sample cool` where an item is `nice` and another item is `c`"
         );
         Ok(())
     }
@@ -732,9 +733,9 @@ pub mod tests {
             SampleCool,
         }
 
-        assert_eq!(to_string(&Example)?, "'example'");
-        assert_eq!(to_string(&ExampleEnum::Example)?, "'example'");
-        assert_eq!(to_string(&ExampleEnum::SampleCool)?, "'sample cool'");
+        assert_eq!(to_string(&Example)?, "`example`");
+        assert_eq!(to_string(&ExampleEnum::Example)?, "`example`");
+        assert_eq!(to_string(&ExampleEnum::SampleCool)?, "`sample cool`");
         Ok(())
     }
 
@@ -743,20 +744,20 @@ pub mod tests {
         let mut map = BTreeMap::new();
         assert_eq!(to_string(&map)?, "the empty object");
         map.insert("key", "value");
-        assert_eq!(to_string(&map)?, "the object where the 'key' is 'value'");
+        assert_eq!(to_string(&map)?, "the object where the `key` is `value`");
         map.insert("second_key", "second value");
         assert_eq!(
             to_string(&map)?,
-            "the object where the 'key' is 'value' and the 'second key' is 'second value'"
+            "the object where the `key` is `value` and the `second key` is `second value`"
         );
 
         let mut map = BTreeMap::new();
         map.insert('a', 1.2);
-        assert_eq!(to_string(&map)?, "the object where the 'a' is 1.2");
+        assert_eq!(to_string(&map)?, "the object where the `a` is 1.2");
         map.insert('b', 10.);
         assert_eq!(
             to_string(&map)?,
-            "the object where the 'a' is 1.2 and the 'b' is 10"
+            "the object where the `a` is 1.2 and the `b` is 10"
         );
         Ok(())
     }
@@ -770,7 +771,7 @@ pub mod tests {
             roles: Vec<String>,
         };
 
-        assert_eq!(to_string(&User { id: 1, name: "user".to_string(), roles: vec!["Admin".to_string()] })?, "the 'user' where the 'id' is 1 and the 'name' is 'user' and the 'roles' is the list where an item is 'Admin'");
+        assert_eq!(to_string(&User { id: 1, name: "user".to_string(), roles: vec!["Admin".to_string()] })?, "the `user` where the `id` is 1 and the `name` is `user` and the `roles` is the list where an item is `Admin`");
         Ok(())
     }
 }

@@ -29,6 +29,13 @@ pub struct Deserializer<'de> {
     index: usize,
 }
 
+fn unescape_str(string: &str) -> String {
+    string
+        .replace(r#"\'"#, r#"'"#)
+        .replace(r#"\""#, r#"""#)
+        .replace(r#"\`"#, r#"`"#)
+}
+
 impl<'de> Deserializer<'de> {
     pub fn from_str(src: &'de str) -> Self {
         Self { src, index: 0 }
@@ -294,7 +301,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: de::Visitor<'de>,
     {
         match self.parse_next()? {
-            Parsed::Str(string) => visitor.visit_borrowed_str(string),
+            Parsed::Str(string) => visitor.visit_string(unescape_str(string)),
             _ => Err(Error::ExpectedString),
         }
     }
@@ -304,7 +311,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: de::Visitor<'de>,
     {
         match self.parse_next()? {
-            Parsed::Str(string) => visitor.visit_string(string.to_string()),
+            Parsed::Str(string) => visitor.visit_string(unescape_str(string)),
             _ => Err(Error::ExpectedString),
         }
     }
@@ -403,9 +410,17 @@ mod tests {
 
     #[test]
     fn deserialize_str() -> Result<()> {
-        assert_eq!("hello", from_str::<&'static str>("'hello'")?);
-        assert_eq!("hello", from_str::<String>("'hello'")?);
-        assert_eq!(json!("hello"), from_str::<Value>("'hello'")?);
+        assert_eq!("hello", from_str::<String>("`hello`")?);
+        assert_eq!("hello", from_str::<String>("`hello`")?);
+        assert_eq!(
+            "escaped`string",
+            from_str::<String>(r#"`escaped\`string`"#)?
+        );
+        assert_eq!(
+            r#"other chars ' ` ""#,
+            from_str::<String>(r#"`other chars \' \` \"`"#)?
+        );
+        assert_eq!(json!("hello"), from_str::<Value>("`hello`")?);
         Ok(())
     }
 
