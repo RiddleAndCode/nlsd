@@ -119,21 +119,9 @@ fn parse_delimited(
     }
 }
 
+#[inline]
 pub fn parse_string(src: &str) -> ParseResult<&str> {
-    let (s_start, delimiter) =
-        if let Some(res) = src.chars().enumerate().find(|(_, c)| !c.is_whitespace()) {
-            res
-        } else {
-            return Err(ParseError::UnexpectedEof);
-        };
-
-    match delimiter {
-        '\'' | '`' | '"' => (),
-        _ => return Err(ParseError::InvalidString(s_start)),
-    }
-
-    parse_delimited(&src[s_start..], delimiter, delimiter, '\\')
-        .map(|(index, res, rest)| (index + s_start, res, rest))
+    parse_delimited(src, '`', '`', '\\')
 }
 
 pub fn parse_number(src: &str) -> ParseResult<Number> {
@@ -208,56 +196,56 @@ mod tests {
     }
 
     #[test]
-    fn parse_strings_apostrophe() -> Result<(), ParseError> {
-        assert_eq!((1, "", ""), parse_string("''")?);
-        assert_eq!((1, "a", ""), parse_string("'a'")?);
-        assert_eq!((1, " ", ""), parse_string("' '")?);
-        assert_eq!((1, "hello, world", ""), parse_string("'hello, world'")?);
-        assert_eq!((2, "hello, world", ""), parse_string(" 'hello, world'")?);
-        assert_eq!((1, "hello, world", ""), parse_string("'hello, world' ")?);
-        assert_eq!((2, "hello, world", ""), parse_string(" 'hello, world' ")?);
-        assert_eq!((4, "hello, world", ""), parse_string("   'hello, world'")?);
-        assert_eq!((1, "hello, world", ""), parse_string("'hello, world'   ")?);
+    fn parse_strings() -> Result<(), ParseError> {
+        assert_eq!((1, "", ""), parse_string("``")?);
+        assert_eq!((1, "a", ""), parse_string("`a`")?);
+        assert_eq!((1, " ", ""), parse_string("` `")?);
+        assert_eq!((1, "hello, world", ""), parse_string("`hello, world`")?);
+        assert_eq!((2, "hello, world", ""), parse_string(" `hello, world`")?);
+        assert_eq!((1, "hello, world", ""), parse_string("`hello, world` ")?);
+        assert_eq!((2, "hello, world", ""), parse_string(" `hello, world` ")?);
+        assert_eq!((4, "hello, world", ""), parse_string("   `hello, world`")?);
+        assert_eq!((1, "hello, world", ""), parse_string("`hello, world`   ")?);
         assert_eq!(
             (4, "hello, world", ""),
-            parse_string("   'hello, world'   ")?
+            parse_string("   `hello, world`   ")?
         );
 
         assert_eq!(
             (1, "hello, world", "token"),
-            parse_string("'hello, world' token")?
+            parse_string("`hello, world` token")?
         );
         assert_eq!(
             (2, "hello, world", "token"),
-            parse_string(" 'hello, world' token")?
+            parse_string(" `hello, world` token")?
         );
         assert_eq!(
             (1, "hello, world", "token"),
-            parse_string("'hello, world'   token")?
+            parse_string("`hello, world`   token")?
         );
         assert_eq!(
             (4, "hello, world", "token"),
-            parse_string("   'hello, world'   token")?
+            parse_string("   `hello, world`   token")?
         );
 
         assert_eq!(
             (1, "hello, world", "token "),
-            parse_string("'hello, world' token ")?
+            parse_string("`hello, world` token ")?
         );
         assert_eq!(
             (2, "hello, world", "token "),
-            parse_string(" 'hello, world' token ")?
+            parse_string(" `hello, world` token ")?
         );
         assert_eq!(
             (1, "hello, world", "token "),
-            parse_string("'hello, world'   token ")?
+            parse_string("`hello, world`   token ")?
         );
         assert_eq!(
             (4, "hello, world", "token "),
-            parse_string("   'hello, world'   token ")?
+            parse_string("   `hello, world`   token ")?
         );
 
-        assert_eq!((1, "hello", "'world'"), parse_string("'hello' 'world'")?);
+        assert_eq!((1, "hello", "`world`"), parse_string("`hello` `world`")?);
 
         assert!(matches!(parse_string(""), Err(ParseError::UnexpectedEof)));
         assert!(matches!(parse_string(" "), Err(ParseError::UnexpectedEof)));
@@ -266,11 +254,11 @@ mod tests {
             Err(ParseError::UnexpectedEof)
         ));
 
-        assert!(matches!(parse_string("'"), Err(ParseError::UnexpectedEof)));
-        assert!(matches!(parse_string("' "), Err(ParseError::UnexpectedEof)));
-        assert!(matches!(parse_string(" '"), Err(ParseError::UnexpectedEof)));
+        assert!(matches!(parse_string("`"), Err(ParseError::UnexpectedEof)));
+        assert!(matches!(parse_string("` "), Err(ParseError::UnexpectedEof)));
+        assert!(matches!(parse_string(" `"), Err(ParseError::UnexpectedEof)));
         assert!(matches!(
-            parse_string(" ' "),
+            parse_string(" ` "),
             Err(ParseError::UnexpectedEof)
         ));
 
@@ -291,91 +279,29 @@ mod tests {
             Err(ParseError::InvalidString(1))
         ));
 
-        assert_eq!((1, r#"\'"#, ""), parse_string(r#"'\''"#)?);
-        assert_eq!((1, r#"escaped\'"#, ""), parse_string(r#"'escaped\''"#)?);
+        assert_eq!((1, r#"\`"#, ""), parse_string(r#"`\``"#)?);
+        assert_eq!((1, r#"escaped\`"#, ""), parse_string(r#"`escaped\``"#)?);
         assert_eq!(
-            (1, r#"escaped\'text"#, ""),
-            parse_string(r#"'escaped\'text'"#)?
+            (1, r#"escaped\`text"#, ""),
+            parse_string(r#"`escaped\`text`"#)?
         );
-        assert_eq!((1, r#" \'"#, ""), parse_string(r#"' \''"#)?);
-        assert_eq!((1, r#"\' "#, ""), parse_string(r#"'\' '"#)?);
-        assert_eq!((2, r#"\'"#, ""), parse_string(r#" '\''"#)?);
-        assert_eq!((1, r#"\'"#, ""), parse_string(r#"'\'' "#)?);
-        assert_eq!((2, r#"\'"#, ""), parse_string(r#" '\'' "#)?);
-
-        assert!(matches!(
-            parse_string("''a"),
-            Err(ParseError::ExpectedWhitespace(2))
-        ));
-        assert!(matches!(
-            parse_string("'hello'world"),
-            Err(ParseError::ExpectedWhitespace(7))
-        ));
-        assert!(matches!(
-            parse_string("'hello'world'"),
-            Err(ParseError::ExpectedWhitespace(7))
-        ));
-
-        Ok(())
-    }
-
-    #[test]
-    fn parse_strings_other() -> Result<(), ParseError> {
-        assert_eq!(
-            (1, "hello, world", "token"),
-            parse_string("`hello, world` token")?
-        );
-        assert_eq!(
-            (1, "hello, world", "token"),
-            parse_string(r#""hello, world" token"#)?
-        );
-
-        assert_eq!(
-            (1, r#"escaped\`string"#, "token"),
-            parse_string(r#"`escaped\`string` token"#)?
-        );
-        assert_eq!(
-            (1, r#"escaped\'string"#, "token"),
-            parse_string(r#"`escaped\'string` token"#)?
-        );
-        assert_eq!(
-            (1, r#"escaped\"string"#, "token"),
-            parse_string(r#"`escaped\"string` token"#)?
-        );
-
-        assert_eq!(
-            (1, r#"escaped\`string"#, "token"),
-            parse_string(r#""escaped\`string" token"#)?
-        );
-        assert_eq!(
-            (1, r#"escaped\'string"#, "token"),
-            parse_string(r#""escaped\'string" token"#)?
-        );
-        assert_eq!(
-            (1, r#"escaped\"string"#, "token"),
-            parse_string(r#""escaped\"string" token"#)?
-        );
-
-        assert_eq!(
-            (1, r#"escaped\`string"#, "token"),
-            parse_string(r#"'escaped\`string' token"#)?
-        );
-        assert_eq!(
-            (1, r#"escaped\'string"#, "token"),
-            parse_string(r#"'escaped\'string' token"#)?
-        );
-        assert_eq!(
-            (1, r#"escaped\"string"#, "token"),
-            parse_string(r#"'escaped\"string' token"#)?
-        );
+        assert_eq!((1, r#" \`"#, ""), parse_string(r#"` \``"#)?);
+        assert_eq!((1, r#"\` "#, ""), parse_string(r#"`\` `"#)?);
+        assert_eq!((2, r#"\`"#, ""), parse_string(r#" `\``"#)?);
+        assert_eq!((1, r#"\`"#, ""), parse_string(r#"`\`` "#)?);
+        assert_eq!((2, r#"\`"#, ""), parse_string(r#" `\`` "#)?);
 
         assert!(matches!(
             parse_string("``a"),
             Err(ParseError::ExpectedWhitespace(2))
         ));
         assert!(matches!(
-            parse_string(r#"""a"#),
-            Err(ParseError::ExpectedWhitespace(2))
+            parse_string("`hello`world"),
+            Err(ParseError::ExpectedWhitespace(7))
+        ));
+        assert!(matches!(
+            parse_string("`hello`world`"),
+            Err(ParseError::ExpectedWhitespace(7))
         ));
 
         Ok(())
@@ -436,7 +362,7 @@ mod tests {
         );
         assert_eq!(
             (1, Parsed::Str("hello, world"), ""),
-            parse_next("'hello, world'")?
+            parse_next("`hello, world`")?
         );
         assert_eq!((0, Parsed::Token("token"), ""), parse_next("token")?);
 
@@ -450,7 +376,7 @@ mod tests {
         );
         assert_eq!(
             (1, Parsed::Str("hello, world"), "token"),
-            parse_next("'hello, world' token")?
+            parse_next("`hello, world` token")?
         );
         assert_eq!(
             (0, Parsed::Token("token"), "token2"),

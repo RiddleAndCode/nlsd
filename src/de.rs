@@ -1,28 +1,30 @@
 use super::error::{Error, Result};
-use super::parser::{parse_next, Number, ParseError, Parsed};
+use super::parser::{
+    parse_next, parse_number, parse_string, parse_token, Number, ParseError, ParseResult, Parsed,
+};
 use serde::de;
 
-const TRUE_TOKEN: Parsed<'static> = Parsed::Token("true");
-const FALSE_TOKEN: Parsed<'static> = Parsed::Token("false");
-const ON_TOKEN: Parsed<'static> = Parsed::Token("on");
-const OFF_TOKEN: Parsed<'static> = Parsed::Token("off");
-const ENABLED_TOKEN: Parsed<'static> = Parsed::Token("enabled");
-const DISABLED_TOKEN: Parsed<'static> = Parsed::Token("disabled");
+const TRUE: &str = "true";
+const FALSE: &str = "false";
+const ON: &str = "on";
+const OFF: &str = "off";
+const ENABLED: &str = "enabled";
+const DISABLED: &str = "disabled";
 
-const EMPTY_TOKEN: Parsed<'static> = Parsed::Token("empty");
-const NOTHING_TOKEN: Parsed<'static> = Parsed::Token("nothing");
+const EMPTY: &str = "empty";
+const NOTHING: &str = "nothing";
 
-const THE_TOKEN: Parsed<'static> = Parsed::Token("the");
-const OBJECT_TOKEN: Parsed<'static> = Parsed::Token("object");
-const LIST_TOKEN: Parsed<'static> = Parsed::Token("list");
-const HENCEFORTH_TOKEN: Parsed<'static> = Parsed::Token("henceforth");
-const WHERE_TOKEN: Parsed<'static> = Parsed::Token("where");
-const AN_TOKEN: Parsed<'static> = Parsed::Token("an");
-const ITEM_TOKEN: Parsed<'static> = Parsed::Token("item");
-const OF_TOKEN: Parsed<'static> = Parsed::Token("of");
-const IS_TOKEN: Parsed<'static> = Parsed::Token("is");
-const AND_TOKEN: Parsed<'static> = Parsed::Token("and");
-const ANOTHER_TOKEN: Parsed<'static> = Parsed::Token("another");
+const THE: &str = "the";
+const OBJECT: &str = "object";
+const LIST: &str = "list";
+const HENCEFORTH: &str = "henceforth";
+const WHERE: &str = "where";
+const AN: &str = "an";
+const ITEM: &str = "item";
+const OF: &str = "of";
+const IS: &str = "is";
+const AND: &str = "and";
+const ANOTHER: &str = "another";
 
 pub struct Deserializer<'de> {
     src: &'de str,
@@ -30,10 +32,7 @@ pub struct Deserializer<'de> {
 }
 
 fn unescape_str(string: &str) -> String {
-    string
-        .replace(r#"\'"#, r#"'"#)
-        .replace(r#"\""#, r#"""#)
-        .replace(r#"\`"#, r#"`"#)
+    string.replace(r#"\`"#, r#"`"#)
 }
 
 impl<'de> Deserializer<'de> {
@@ -42,19 +41,43 @@ impl<'de> Deserializer<'de> {
     }
 
     fn peek_next(&self) -> Result<Parsed<'de>> {
-        let (_, parsed, _) = parse_next(&self.src[self.index..])?;
+        let (_, parsed, _) =
+            parse_next(&self.src[self.index..]).map_err(|err| self.inc_err_index(err.into()))?;
         Ok(parsed)
     }
 
     fn parse_next(&mut self) -> Result<Parsed<'de>> {
-        let (_, parsed, rest) = parse_next(&self.src[self.index..]).map_err(|err| match err {
-            ParseError::InvalidString(i) => ParseError::InvalidString(i + self.index),
-            ParseError::InvalidNumber(i) => ParseError::InvalidNumber(i + self.index),
-            ParseError::ExpectedWhitespace(i) => ParseError::ExpectedWhitespace(i + self.index),
-            err => err,
-        })?;
+        self.inc_parse_result(parse_next(&self.src[self.index..]))
+    }
+
+    fn parse_token(&mut self) -> Result<&'de str> {
+        self.inc_parse_result(parse_token(&self.src[self.index..]))
+    }
+
+    fn parse_string(&mut self) -> Result<&'de str> {
+        self.inc_parse_result(parse_string(&self.src[self.index..]))
+    }
+
+    fn parse_number(&mut self) -> Result<Number> {
+        self.inc_parse_result(parse_number(&self.src[self.index..]))
+    }
+
+    fn inc_parse_result<T>(&mut self, result: ParseResult<T>) -> Result<T> {
+        let (_, parsed, rest) = result.map_err(|err| self.inc_err_index(err.into()))?;
         self.index += self.src.len() - rest.len();
         Ok(parsed)
+    }
+
+    fn inc_err_index(&self, err: Error) -> Error {
+        match err {
+            Error::Parse(err) => Error::Parse(match err {
+                ParseError::InvalidString(i) => ParseError::InvalidString(i + self.index),
+                ParseError::InvalidNumber(i) => ParseError::InvalidNumber(i + self.index),
+                ParseError::ExpectedWhitespace(i) => ParseError::ExpectedWhitespace(i + self.index),
+                err => err,
+            }),
+            err => err,
+        }
     }
 }
 
@@ -66,14 +89,14 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: de::Visitor<'de>,
     {
         match self.peek_next()? {
-            TRUE_TOKEN | FALSE_TOKEN | ON_TOKEN | OFF_TOKEN | ENABLED_TOKEN | DISABLED_TOKEN => {
-                self.deserialize_bool(visitor)
-            }
-            EMPTY_TOKEN | NOTHING_TOKEN => self.deserialize_unit(visitor),
+            Parsed::Token(token) => match token {
+                TRUE | FALSE | ON | OFF | ENABLED | DISABLED => self.deserialize_bool(visitor),
+                EMPTY | NOTHING => self.deserialize_unit(visitor),
+                _ => Err(Error::Unimplemented),
+            },
             Parsed::Number(Number::Float(_)) => self.deserialize_f64(visitor),
             Parsed::Number(Number::Integer(_)) => self.deserialize_i64(visitor),
             Parsed::Str(_) => self.deserialize_str(visitor),
-            _ => Err(Error::Unimplemented),
         }
     }
 
@@ -81,9 +104,9 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            TRUE_TOKEN | ON_TOKEN | ENABLED_TOKEN => visitor.visit_bool(true),
-            FALSE_TOKEN | OFF_TOKEN | DISABLED_TOKEN => visitor.visit_bool(false),
+        match self.parse_token()? {
+            TRUE | ON | ENABLED => visitor.visit_bool(true),
+            FALSE | OFF | DISABLED => visitor.visit_bool(false),
             _ => Err(Error::ExpectedBool),
         }
     }
@@ -92,8 +115,8 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            EMPTY_TOKEN | NOTHING_TOKEN => visitor.visit_unit(),
+        match self.parse_token()? {
+            EMPTY | NOTHING => visitor.visit_unit(),
             _ => Err(Error::ExpectedNull),
         }
     }
@@ -102,16 +125,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => visitor.visit_i64(num),
-            Parsed::Number(Number::Float(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => visitor.visit_i64(num),
+            Number::Float(num) => {
                 if num.trunc() == num {
                     visitor.visit_i64(num as i64)
                 } else {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -119,16 +141,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => visitor.visit_i32(num as i32),
-            Parsed::Number(Number::Float(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => visitor.visit_i32(num as i32),
+            Number::Float(num) => {
                 if num.trunc() == num {
                     visitor.visit_i32(num as i32)
                 } else {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -136,16 +157,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => visitor.visit_i16(num as i16),
-            Parsed::Number(Number::Float(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => visitor.visit_i16(num as i16),
+            Number::Float(num) => {
                 if num.trunc() == num {
                     visitor.visit_i16(num as i16)
                 } else {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -153,16 +173,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => visitor.visit_i8(num as i8),
-            Parsed::Number(Number::Float(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => visitor.visit_i8(num as i8),
+            Number::Float(num) => {
                 if num.trunc() == num {
                     visitor.visit_i8(num as i8)
                 } else {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -170,15 +189,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => {
                 if num.is_positive() {
                     visitor.visit_u64(num as u64)
                 } else {
                     Err(Error::ExpectedUnsigned)
                 }
             }
-            Parsed::Number(Number::Float(num)) => {
+            Number::Float(num) => {
                 if num.trunc() == num {
                     if num.is_sign_positive() {
                         visitor.visit_u64(num as u64)
@@ -189,7 +208,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -197,15 +215,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => {
                 if num.is_positive() {
                     visitor.visit_u32(num as u32)
                 } else {
                     Err(Error::ExpectedUnsigned)
                 }
             }
-            Parsed::Number(Number::Float(num)) => {
+            Number::Float(num) => {
                 if num.trunc() == num {
                     if num.is_sign_positive() {
                         visitor.visit_u32(num as u32)
@@ -216,7 +234,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -224,15 +241,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => {
                 if num.is_positive() {
                     visitor.visit_u16(num as u16)
                 } else {
                     Err(Error::ExpectedUnsigned)
                 }
             }
-            Parsed::Number(Number::Float(num)) => {
+            Number::Float(num) => {
                 if num.trunc() == num {
                     if num.is_sign_positive() {
                         visitor.visit_u16(num as u16)
@@ -243,7 +260,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -251,15 +267,15 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => {
+        match self.parse_number()? {
+            Number::Integer(num) => {
                 if num.is_positive() {
                     visitor.visit_u8(num as u8)
                 } else {
                     Err(Error::ExpectedUnsigned)
                 }
             }
-            Parsed::Number(Number::Float(num)) => {
+            Number::Float(num) => {
                 if num.trunc() == num {
                     if num.is_sign_positive() {
                         visitor.visit_u8(num as u8)
@@ -270,7 +286,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                     Err(Error::ExpectedInteger)
                 }
             }
-            _ => Err(Error::ExpectedInteger),
         }
     }
 
@@ -278,10 +293,9 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => visitor.visit_f64(num as f64),
-            Parsed::Number(Number::Float(num)) => visitor.visit_f64(num),
-            _ => Err(Error::ExpectedFloat),
+        match self.parse_number()? {
+            Number::Integer(num) => visitor.visit_f64(num as f64),
+            Number::Float(num) => visitor.visit_f64(num),
         }
     }
 
@@ -289,10 +303,9 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Number(Number::Integer(num)) => visitor.visit_f32(num as f32),
-            Parsed::Number(Number::Float(num)) => visitor.visit_f32(num as f32),
-            _ => Err(Error::ExpectedFloat),
+        match self.parse_number()? {
+            Number::Integer(num) => visitor.visit_f32(num as f32),
+            Number::Float(num) => visitor.visit_f32(num as f32),
         }
     }
 
@@ -300,41 +313,30 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Str(string) => visitor.visit_string(unescape_str(string)),
-            _ => Err(Error::ExpectedString),
-        }
+        self.deserialize_string(visitor)
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Str(string) => visitor.visit_string(unescape_str(string)),
-            _ => Err(Error::ExpectedString),
-        }
+        visitor.visit_string(unescape_str(self.parse_string()?))
     }
 
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        match self.parse_next()? {
-            Parsed::Str(string) => {
-                let mut chars = string.chars();
-                let ch = if let Some(ch) = chars.next() {
-                    ch
-                } else {
-                    return Err(Error::ExpectedChar);
-                };
-                if chars.next().is_some() {
-                    return Err(Error::ExpectedChar);
-                }
-                visitor.visit_char(ch)
-            }
-            _ => Err(Error::ExpectedChar),
+        let mut chars = self.parse_string()?.chars();
+        let ch = if let Some(ch) = chars.next() {
+            ch
+        } else {
+            return Err(Error::ExpectedChar);
+        };
+        if chars.next().is_some() {
+            return Err(Error::ExpectedChar);
         }
+        visitor.visit_char(ch)
     }
 
     serde::forward_to_deserialize_any! {
@@ -416,18 +418,14 @@ mod tests {
             "escaped`string",
             from_str::<String>(r#"`escaped\`string`"#)?
         );
-        assert_eq!(
-            r#"other chars ' ` ""#,
-            from_str::<String>(r#"`other chars \' \` \"`"#)?
-        );
         assert_eq!(json!("hello"), from_str::<Value>("`hello`")?);
         Ok(())
     }
 
     #[test]
     fn deserialize_char() -> Result<()> {
-        assert_eq!('a', from_str::<char>("'a'")?);
-        assert_eq!(json!("a"), from_str::<Value>("'a'")?);
+        assert_eq!('a', from_str::<char>("`a`")?);
+        assert_eq!(json!("a"), from_str::<Value>("`a`")?);
         Ok(())
     }
 }
