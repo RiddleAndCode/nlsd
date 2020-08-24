@@ -3,6 +3,7 @@ use super::parser::{
     parse_next, parse_number, parse_string, parse_token, Number, ParseError, ParseResult, Parsed,
 };
 use serde::de;
+use std::borrow::Cow;
 
 const TRUE: &str = "true";
 const FALSE: &str = "false";
@@ -33,8 +34,13 @@ pub struct Deserializer<'de> {
     scope: Option<&'de str>,
 }
 
-fn unescape_str(string: &str) -> String {
-    string.replace(r#"\`"#, r#"`"#)
+fn unescape_str(string: &str) -> Cow<str> {
+    let out = string.replace(r#"\`"#, "`");
+    if out == string {
+        Cow::Borrowed(string)
+    } else {
+        Cow::Owned(out)
+    }
 }
 
 impl<'de> Deserializer<'de> {
@@ -341,14 +347,17 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        self.deserialize_string(visitor)
+        match unescape_str(self.parse_string()?) {
+            Cow::Owned(string) => visitor.visit_string(string),
+            Cow::Borrowed(string) => visitor.visit_borrowed_str(string),
+        }
     }
 
     fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        visitor.visit_string(unescape_str(self.parse_string()?))
+        visitor.visit_string(unescape_str(self.parse_string()?).into_owned())
     }
 
     fn deserialize_char<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -741,11 +750,14 @@ mod tests {
     #[test]
     fn deserialize_str() -> Result<()> {
         assert_eq!("hello", from_str::<String>("`hello`")?);
-        assert_eq!("hello", from_str::<String>("`hello`")?);
         assert_eq!(
             "escaped`string",
             from_str::<String>(r#"`escaped\`string`"#)?
         );
+
+        assert_eq!("hello", from_str::<&str>("`hello`")?);
+        assert!(from_str::<&str>(r#"`escaped\`string`"#).is_err());
+
         assert_eq!(json!("hello"), from_str::<Value>("`hello`")?);
         Ok(())
     }
@@ -759,10 +771,7 @@ mod tests {
 
     #[test]
     fn deserialize_option() -> Result<()> {
-        assert_eq!(
-            Some("hello".to_string()),
-            from_str::<Option<String>>("`hello`")?
-        );
+        assert_eq!(Some("hello"), from_str::<Option<&str>>("`hello`")?);
         assert_eq!(Some(123), from_str::<Option<i64>>("123")?);
         assert_eq!(Some(123.123), from_str::<Option<f64>>("123.123")?);
         assert_eq!(None, from_str::<Option<i64>>("empty")?);
@@ -790,8 +799,8 @@ mod tests {
             from_str::<Vec<i64>>("the list where an item is 1 and another item is 2")?
         );
         assert_eq!(
-            (1, "string".to_string(), true),
-            from_str::<(i64, String, bool)>(
+            (1, "string", true),
+            from_str::<(i64, &str, bool)>(
                 "the list where an item is 1 and another item is `string` and another item is true"
             )?
         );
@@ -801,31 +810,24 @@ mod tests {
     #[test]
     fn deserialize_map() -> Result<()> {
         assert_eq!(
-            vec![("name".to_string(), "rob".to_string()),]
+            vec![("name", "rob")]
                 .into_iter()
-                .collect::<HashMap<String, String>>(),
-            from_str::<HashMap<String, String>>("the object where the `name` is `rob`")?
+                .collect::<HashMap<&str, &str>>(),
+            from_str::<HashMap<&str, &str>>("the object where the `name` is `rob`")?
         );
         assert_eq!(
-            vec![
-                ("name".to_string(), "rob".to_string()),
-                ("id".to_string(), "1".to_string())
-            ]
-            .into_iter()
-            .collect::<HashMap<String, String>>(),
-            from_str::<HashMap<String, String>>(
+            vec![("name", "rob"), ("id", "1")]
+                .into_iter()
+                .collect::<HashMap<&str, &str>>(),
+            from_str::<HashMap<&str, &str>>(
                 "the object where the `name` is `rob` and the `id` is `1`"
             )?
         );
         assert_eq!(
-            vec![
-                ("red".to_string(), 100),
-                ("green".to_string(), 200),
-                ("blue".to_string(), 50)
-            ]
-            .into_iter()
-            .collect::<HashMap<String, u8>>(),
-            from_str::<HashMap<String, u8>>(
+            vec![("red", 100), ("green", 200), ("blue", 50)]
+                .into_iter()
+                .collect::<HashMap<&str, u8>>(),
+            from_str::<HashMap<&str, u8>>(
                 "the object where `red` is 100 and `green` is 200 and `blue` is 50"
             )?
         );

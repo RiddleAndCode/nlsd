@@ -63,7 +63,12 @@ impl<W> Serializer<W> {
 }
 
 fn format_str(string: &str) -> String {
-    format!("`{}`", string.replace('`', r"\`"))
+    format!("`{}`", escape_str(string))
+}
+
+#[inline]
+fn escape_str(string: &str) -> String {
+    string.replace('`', r"\`")
 }
 
 fn humanize(string: &str) -> String {
@@ -343,29 +348,42 @@ where
             self.buffer.write_all(b" and ")?;
         }
 
-        let mut serialized_name = Vec::new();
-        name.serialize(&mut Serializer::new(&mut serialized_name))?;
-        let name = humanize(&unsafe {
-            // We do not emit invalid UTF-8.
-            String::from_utf8_unchecked(serialized_name)
-        });
-
-        if !(name.starts_with('`') && name.ends_with('`') && name.len() > 1) {
-            return Err(Error::UnexpectedKeyType);
+        let mut serializer = Serializer::with_context(Vec::new(), Vec::new());
+        name.serialize(&mut serializer)?;
+        // TODO test if nested struct actually gets caught
+        if serializer.context.len() > 1 {
+            return Err(Error::ExpectedPrimitiveMapKey);
         }
-        let name = name[1..name.len() - 1].to_string();
+        let name = unsafe {
+            // We do not emit invalid UTF-8.
+            core::str::from_utf8_unchecked(&serializer.writer).to_string()
+        };
+        self.buffer.write_all(&mut serializer.writer)?;
+        self.buffer.push(b' ');
+
+        self.index += 1;
+        self.serializer.context.push(escape_str(&name));
+        Ok(())
+    }
+
+    fn the_struct_key(&mut self, name: &'static str) -> Result<()> {
+        if self.index == 0 {
+            self.buffer.write_all(b" where ")?;
+        } else {
+            self.buffer.write_all(b" and ")?;
+        }
 
         // or other verbs?
         if name.starts_with("is ") {
             self.buffer
-                .write_fmt(format_args!("{} ", format_str(&name)))?;
+                .write_fmt(format_args!("{} ", format_str(name)))?;
         } else {
             self.buffer
-                .write_fmt(format_args!("the {} ", format_str(&name)))?;
+                .write_fmt(format_args!("the {} ", format_str(name)))?;
         }
 
         self.index += 1;
-        self.serializer.context.push(name);
+        self.serializer.context.push(name.to_string());
         Ok(())
     }
 
@@ -576,7 +594,7 @@ where
         T: ser::Serialize,
     {
         self.init_object();
-        self.the_key(key)?;
+        self.the_struct_key(key)?;
         self.of_scope()?;
         self.is()?;
         self.value(value)?;
@@ -744,20 +762,20 @@ pub mod tests {
         let mut map = BTreeMap::new();
         assert_eq!(to_string(&map)?, "the empty object");
         map.insert("key", "value");
-        assert_eq!(to_string(&map)?, "the object where the `key` is `value`");
-        map.insert("second_key", "second value");
+        assert_eq!(to_string(&map)?, "the object where `key` is `value`");
+        map.insert("second key", "second value");
         assert_eq!(
             to_string(&map)?,
-            "the object where the `key` is `value` and the `second key` is `second value`"
+            "the object where `key` is `value` and `second key` is `second value`"
         );
 
         let mut map = BTreeMap::new();
         map.insert('a', 1.2);
-        assert_eq!(to_string(&map)?, "the object where the `a` is 1.2");
+        assert_eq!(to_string(&map)?, "the object where `a` is 1.2");
         map.insert('b', 10.);
         assert_eq!(
             to_string(&map)?,
-            "the object where the `a` is 1.2 and the `b` is 10"
+            "the object where `a` is 1.2 and `b` is 10"
         );
         Ok(())
     }
