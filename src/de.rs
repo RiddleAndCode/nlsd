@@ -117,7 +117,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                     if compound.is_list() {
                         visitor.visit_seq(compound)
                     } else {
-                        todo!()
+                        visitor.visit_map(compound)
                     }
                 }
                 _ => Err(Error::Unimplemented),
@@ -219,18 +219,18 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match self.parse_number()? {
             Number::Integer(num) => {
-                if num.is_positive() {
-                    visitor.visit_u64(num as u64)
-                } else {
+                if num.is_negative() {
                     Err(Error::ExpectedUnsigned)
+                } else {
+                    visitor.visit_u64(num as u64)
                 }
             }
             Number::Float(num) => {
                 if num.trunc() == num {
-                    if num.is_sign_positive() {
-                        visitor.visit_u64(num as u64)
-                    } else {
+                    if num.is_sign_negative() {
                         Err(Error::ExpectedUnsigned)
+                    } else {
+                        visitor.visit_u64(num as u64)
                     }
                 } else {
                     Err(Error::ExpectedInteger)
@@ -245,18 +245,18 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match self.parse_number()? {
             Number::Integer(num) => {
-                if num.is_positive() {
-                    visitor.visit_u32(num as u32)
-                } else {
+                if num.is_negative() {
                     Err(Error::ExpectedUnsigned)
+                } else {
+                    visitor.visit_u32(num as u32)
                 }
             }
             Number::Float(num) => {
                 if num.trunc() == num {
-                    if num.is_sign_positive() {
-                        visitor.visit_u32(num as u32)
-                    } else {
+                    if num.is_sign_negative() {
                         Err(Error::ExpectedUnsigned)
+                    } else {
+                        visitor.visit_u32(num as u32)
                     }
                 } else {
                     Err(Error::ExpectedInteger)
@@ -271,18 +271,18 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match self.parse_number()? {
             Number::Integer(num) => {
-                if num.is_positive() {
-                    visitor.visit_u16(num as u16)
-                } else {
+                if num.is_negative() {
                     Err(Error::ExpectedUnsigned)
+                } else {
+                    visitor.visit_u16(num as u16)
                 }
             }
             Number::Float(num) => {
                 if num.trunc() == num {
-                    if num.is_sign_positive() {
-                        visitor.visit_u16(num as u16)
-                    } else {
+                    if num.is_sign_negative() {
                         Err(Error::ExpectedUnsigned)
+                    } else {
+                        visitor.visit_u16(num as u16)
                     }
                 } else {
                     Err(Error::ExpectedInteger)
@@ -297,18 +297,18 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     {
         match self.parse_number()? {
             Number::Integer(num) => {
-                if num.is_positive() {
-                    visitor.visit_u8(num as u8)
-                } else {
+                if num.is_negative() {
                     Err(Error::ExpectedUnsigned)
+                } else {
+                    visitor.visit_u8(num as u8)
                 }
             }
             Number::Float(num) => {
                 if num.trunc() == num {
-                    if num.is_sign_positive() {
-                        visitor.visit_u8(num as u8)
-                    } else {
+                    if num.is_sign_negative() {
                         Err(Error::ExpectedUnsigned)
+                    } else {
+                        visitor.visit_u8(num as u8)
                     }
                 } else {
                     Err(Error::ExpectedInteger)
@@ -413,27 +413,6 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         self.deserialize_str(visitor)
     }
 
-    fn deserialize_ignored_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        self.deserialize_any(visitor)
-    }
-
-    fn deserialize_bytes<V>(self, _: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        return Err(Error::Unimplemented);
-    }
-
-    fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
-    where
-        V: de::Visitor<'de>,
-    {
-        return Err(Error::Unimplemented);
-    }
-
     fn deserialize_seq<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
@@ -441,8 +420,64 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_seq(Compound::new(self))
     }
 
+    fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_map(Compound::new(self))
+    }
+
     serde::forward_to_deserialize_any! {
-        tuple tuple_struct map struct enum
+        tuple tuple_struct struct enum bytes byte_buf ignored_any
+    }
+}
+
+struct MapKey<'a, 'de> {
+    de: &'a mut Deserializer<'de>,
+}
+
+macro_rules! forward_to_internal_de {
+    ($($method:ident)*) => {
+        $(
+            #[inline]
+            fn $method<V>(self, visitor: V) -> Result<V::Value>
+            where
+                V: de::Visitor<'de>,
+            {
+                self.de.$method(visitor)
+            }
+        )*
+    };
+}
+
+impl<'a, 'de> de::Deserializer<'de> for MapKey<'a, 'de> {
+    type Error = Error;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.de.peek_next()? {
+            Parsed::Token(token) => match token {
+                TRUE | FALSE | ON | OFF | ENABLED | DISABLED => self.deserialize_bool(visitor),
+                EMPTY | NOTHING => self.deserialize_unit(visitor),
+                _ => Err(Error::ExpectedPrimitiveMapKey),
+            },
+            Parsed::Number(Number::Float(_)) => self.deserialize_f64(visitor),
+            Parsed::Number(Number::Integer(_)) => self.deserialize_i64(visitor),
+            Parsed::Str(_) => self.deserialize_str(visitor),
+        }
+    }
+
+    forward_to_internal_de!(
+        deserialize_bool deserialize_i64 deserialize_i32 deserialize_i16 deserialize_i8
+        deserialize_u64 deserialize_u32 deserialize_u16 deserialize_u8 deserialize_f32 deserialize_f64
+        deserialize_char deserialize_str deserialize_string deserialize_unit deserialize_option
+        deserialize_bytes deserialize_byte_buf
+    );
+
+    serde::forward_to_deserialize_any! {
+        seq tuple tuple_struct map struct enum newtype_struct ignored_any identifier unit_struct
     }
 }
 
@@ -527,9 +562,13 @@ impl<'a, 'de> Compound<'a, 'de> {
                 match self.de.peek_next()? {
                     Parsed::Token(token) => match token {
                         AN => self.kind = Some(CompoundKind::List),
-                        THE => self.kind = Some(CompoundKind::Object),
-                        _ => return Err(Error::ExpectedKeyWord(THE)),
+                        THE | TRUE | FALSE | ON | OFF | ENABLED | DISABLED | EMPTY | NOTHING => {
+                            self.kind = Some(CompoundKind::Object)
+                        }
+                        _ => return Err(Error::ExpectedKeyWord(THE)), // TODO this isnt really correct. it could be multiple tokens
                     },
+                    Parsed::Str(_) => self.kind = Some(CompoundKind::Object),
+                    Parsed::Number(_) => self.kind = Some(CompoundKind::Object),
                     _ => return Err(Error::ExpectedKeyWord(THE)),
                 }
             }
@@ -558,15 +597,10 @@ impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
         if self.first {
             self.de.parse_and_expect_token(AN)?;
         } else {
-            match self.de.peek_next() {
-                Ok(Parsed::Token(AND)) => {
-                    let _ = self.de.parse_token()?;
-                    let another = self.de.parse_token()?;
-                    if another != ANOTHER {
-                        return Err(Error::ExpectedKeyWord(ANOTHER));
-                    }
+            match self.de.parse_and_expect_token(AND) {
+                Ok(()) => {
+                    let _ = self.de.parse_and_expect_token(ANOTHER)?;
                 }
-                Ok(_) => return Err(Error::ExpectedKeyWord(AND)),
                 Err(Error::Parse(ParseError::UnexpectedEof)) => return Ok(None),
                 Err(err) => return Err(err),
             }
@@ -581,11 +615,58 @@ impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
     }
 }
 
+impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
+    type Error = Error;
+
+    fn next_key_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        if !self.is_described() {
+            self.describe()?;
+        }
+        if self.is_empty {
+            return Ok(None);
+        }
+        if !self.is_object() {
+            return Err(Error::ExpectedObjectEntry);
+        }
+        // TODO wrap in "transaction"
+        if !self.first {
+            match self.de.parse_and_expect_token(AND) {
+                Ok(_) => (),
+                Err(Error::Parse(ParseError::UnexpectedEof)) => return Ok(None),
+                Err(err) => return Err(err),
+            }
+        }
+
+        match self.de.peek_next()? {
+            Parsed::Token(THE) => {
+                let _ = self.de.parse_token()?;
+            }
+            _ => (),
+        }
+        let res = seed.deserialize(MapKey { de: &mut *self.de })?;
+        self.de.parse_and_expect_token(IS)?;
+
+        self.first = false;
+        Ok(Some(res))
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        seed.deserialize(&mut *self.de)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::helpers::*;
     use serde_json::{json, Value};
+    use std::collections::HashMap;
 
     #[test]
     fn deserialize_bool() -> Result<()> {
@@ -637,6 +718,17 @@ mod tests {
         assert_eq!(1, from_str::<u32>("1")?);
         assert_eq!(1, from_str::<u16>("1")?);
         assert_eq!(1, from_str::<u8>("1")?);
+
+        assert_eq!(0, from_str::<u64>("0")?);
+        assert_eq!(0, from_str::<u32>("0")?);
+        assert_eq!(0, from_str::<u16>("0")?);
+        assert_eq!(0, from_str::<u8>("0")?);
+        assert_eq!(0, from_str::<i64>("0")?);
+        assert_eq!(0, from_str::<i32>("0")?);
+        assert_eq!(0, from_str::<i16>("0")?);
+        assert_eq!(0, from_str::<i8>("0")?);
+        assert_eq!(0., from_str::<f64>("0")?);
+        assert_eq!(0., from_str::<f32>("0")?);
 
         assert_eq!(json!(1), from_str::<Value>("1")?);
         assert_eq!(json!(1.2), from_str::<Value>("1.2")?);
@@ -702,6 +794,46 @@ mod tests {
             from_str::<(i64, String, bool)>(
                 "the list where an item is 1 and another item is `string` and another item is true"
             )?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_map() -> Result<()> {
+        assert_eq!(
+            vec![("name".to_string(), "rob".to_string()),]
+                .into_iter()
+                .collect::<HashMap<String, String>>(),
+            from_str::<HashMap<String, String>>("the object where the `name` is `rob`")?
+        );
+        assert_eq!(
+            vec![
+                ("name".to_string(), "rob".to_string()),
+                ("id".to_string(), "1".to_string())
+            ]
+            .into_iter()
+            .collect::<HashMap<String, String>>(),
+            from_str::<HashMap<String, String>>(
+                "the object where the `name` is `rob` and the `id` is `1`"
+            )?
+        );
+        assert_eq!(
+            vec![
+                ("red".to_string(), 100),
+                ("green".to_string(), 200),
+                ("blue".to_string(), 50)
+            ]
+            .into_iter()
+            .collect::<HashMap<String, u8>>(),
+            from_str::<HashMap<String, u8>>(
+                "the object where `red` is 100 and `green` is 200 and `blue` is 50"
+            )?
+        );
+        assert_eq!(
+            vec![(false, 0), (true, 1),]
+                .into_iter()
+                .collect::<HashMap<bool, u8>>(),
+            from_str::<HashMap<bool, u8>>("the object where true is 1 and false is 0")?
         );
         Ok(())
     }

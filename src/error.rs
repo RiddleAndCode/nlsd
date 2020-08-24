@@ -20,6 +20,7 @@ pub enum Error {
     ExpectedObjectDescriptor,
     ExpectedObjectEntry,
     ExpectedListItem,
+    ExpectedPrimitiveMapKey,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -75,6 +76,7 @@ impl fmt::Display for Error {
             Self::ExpectedObjectDescriptor => f.write_str("expected object descriptor"),
             Self::ExpectedObjectEntry => f.write_str("expected object entry"),
             Self::ExpectedListItem => f.write_str("expected list item"),
+            Self::ExpectedPrimitiveMapKey => f.write_str("map key must be primitive"),
         }
     }
 }
