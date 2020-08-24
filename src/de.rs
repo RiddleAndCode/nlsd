@@ -43,6 +43,34 @@ fn unescape_str(string: &str) -> Cow<str> {
     }
 }
 
+fn dehumanize_snake(string: &str) -> String {
+    let mut out = String::new();
+    let mut was_whitespace = false;
+    for ch in string.chars() {
+        if ch.is_whitespace() {
+            was_whitespace = true;
+        } else {
+            if was_whitespace && !string.is_empty() {
+                out.push('_');
+            }
+            was_whitespace = false;
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn dehumanize_match(string: &str, candidates: &[&'static str]) -> Option<&'static str> {
+    if let Some(string) = candidates.into_iter().find(|&&s| s == string) {
+        return Some(string);
+    }
+    let snake = dehumanize_snake(string);
+    if let Some(string) = candidates.into_iter().find(|&&s| s == snake) {
+        return Some(string);
+    }
+    None
+}
+
 impl<'de> Deserializer<'de> {
     pub fn from_str(src: &'de str) -> Self {
         Self {
@@ -429,6 +457,25 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_seq(Compound::new(self))
     }
 
+    fn deserialize_tuple<V>(self, _: usize, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_seq(Compound::new(self))
+    }
+
+    fn deserialize_tuple_struct<V>(
+        self,
+        _: &'static str,
+        _: usize,
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_seq(Compound::new(self))
+    }
+
     fn deserialize_map<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
@@ -436,13 +483,46 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_map(Compound::new(self))
     }
 
+    fn deserialize_bytes<V>(self, _: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        // TODO base64 decode?
+        Err(Error::Unimplemented)
+    }
+
+    fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        // TODO base64 decode?
+        Err(Error::Unimplemented)
+    }
+
+    fn deserialize_struct<V>(
+        self,
+        _: &'static str,
+        fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        visitor.visit_map(Compound::new_with_expected(self, fields))
+    }
+
     serde::forward_to_deserialize_any! {
-        tuple tuple_struct struct enum bytes byte_buf ignored_any
+        enum ignored_any
     }
 }
 
 struct MapKey<'a, 'de> {
     de: &'a mut Deserializer<'de>,
+}
+
+struct MapExpectedKey<'a, 'de> {
+    de: &'a mut Deserializer<'de>,
+    expected_keys: &'static [&'static str],
 }
 
 macro_rules! forward_to_internal_de {
@@ -490,6 +570,48 @@ impl<'a, 'de> de::Deserializer<'de> for MapKey<'a, 'de> {
     }
 }
 
+impl<'a, 'de> de::Deserializer<'de> for MapExpectedKey<'a, 'de> {
+    type Error = Error;
+
+    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.de.peek_next()? {
+            Parsed::Str(_) => self.deserialize_str(visitor),
+            _ => Err(Error::ExpectedStringMapKey),
+        }
+    }
+
+    fn deserialize_str<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        let string = self.de.parse_string()?;
+        match dehumanize_match(&unescape_str(string), self.expected_keys) {
+            Some(string) => visitor.visit_borrowed_str(string),
+            None => visitor.visit_string(dehumanize_snake(string)),
+        }
+    }
+
+    fn deserialize_string<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.deserialize_str(visitor)
+    }
+
+    forward_to_internal_de! {
+        deserialize_char
+    }
+
+    serde::forward_to_deserialize_any! {
+        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64
+        bytes byte_buf option unit unit_struct newtype_struct seq tuple
+        tuple_struct map struct enum identifier ignored_any
+    }
+}
+
 enum CompoundKind {
     List,
     Object,
@@ -502,6 +624,7 @@ struct Compound<'a, 'de> {
     kind: Option<CompoundKind>,
     is_empty: bool,
     first: bool,
+    expected_keys: Option<&'static [&'static str]>,
 }
 
 impl<'a, 'de> Compound<'a, 'de> {
@@ -513,6 +636,22 @@ impl<'a, 'de> Compound<'a, 'de> {
             kind: None,
             is_empty: false,
             first: true,
+            expected_keys: None,
+        }
+    }
+
+    fn new_with_expected(
+        de: &'a mut Deserializer<'de>,
+        expected_keys: &'static [&'static str],
+    ) -> Self {
+        Self {
+            de,
+            name: None,
+            scope: None,
+            kind: None,
+            is_empty: false,
+            first: true,
+            expected_keys: Some(expected_keys),
         }
     }
 
@@ -578,7 +717,6 @@ impl<'a, 'de> Compound<'a, 'de> {
                     },
                     Parsed::Str(_) => self.kind = Some(CompoundKind::Object),
                     Parsed::Number(_) => self.kind = Some(CompoundKind::Object),
-                    _ => return Err(Error::ExpectedKeyWord(THE)),
                 }
             }
         }
@@ -655,7 +793,16 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
             }
             _ => (),
         }
-        let res = seed.deserialize(MapKey { de: &mut *self.de })?;
+
+        let res = if let Some(expected_keys) = self.expected_keys {
+            seed.deserialize(MapExpectedKey {
+                de: &mut *self.de,
+                expected_keys,
+            })?
+        } else {
+            seed.deserialize(MapKey { de: &mut *self.de })?
+        };
+
         self.de.parse_and_expect_token(IS)?;
 
         self.first = false;
@@ -674,6 +821,7 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
 mod tests {
     use super::*;
     use crate::helpers::*;
+    use serde::Deserialize;
     use serde_json::{json, Value};
     use std::collections::HashMap;
 
@@ -836,6 +984,30 @@ mod tests {
                 .into_iter()
                 .collect::<HashMap<bool, u8>>(),
             from_str::<HashMap<bool, u8>>("the object where true is 1 and false is 0")?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_struct() -> Result<()> {
+        #[derive(Eq, PartialEq, Debug, Deserialize)]
+        struct User {
+            id: usize,
+            user_name: &'static str,
+        }
+        assert_eq!(
+            User {
+                id: 1,
+                user_name: "rob"
+            },
+            from_str::<User>("the `user` where the `user name` is `rob` and the `id` is 1")?
+        );
+        assert_eq!(
+            User {
+                id: 1,
+                user_name: "rob"
+            },
+            from_str::<User>("the object where `user_name` is `rob` and the `id` is 1")?
         );
         Ok(())
     }

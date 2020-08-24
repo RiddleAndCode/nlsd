@@ -220,6 +220,7 @@ where
     }
 
     fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        // TODO base64 encode?
         Err(Error::Unimplemented)
     }
 
@@ -338,7 +339,7 @@ where
         Ok(())
     }
 
-    fn the_key<T: ?Sized>(&mut self, name: &T) -> Result<()>
+    fn the_map_key<T: ?Sized>(&mut self, name: &T) -> Result<()>
     where
         T: ser::Serialize,
     {
@@ -373,17 +374,18 @@ where
             self.buffer.write_all(b" and ")?;
         }
 
+        let name = humanize(name);
         // or other verbs?
-        if name.starts_with("is ") {
+        if name.starts_with("is ") || name.starts_with("has ") {
             self.buffer
-                .write_fmt(format_args!("{} ", format_str(name)))?;
+                .write_fmt(format_args!("{} ", format_str(&name)))?;
         } else {
             self.buffer
-                .write_fmt(format_args!("the {} ", format_str(name)))?;
+                .write_fmt(format_args!("the {} ", format_str(&name)))?;
         }
 
         self.index += 1;
-        self.serializer.context.push(name.to_string());
+        self.serializer.context.push(name);
         Ok(())
     }
 
@@ -559,7 +561,7 @@ where
         T: ser::Serialize,
     {
         self.init_object();
-        self.the_key(key)?;
+        self.the_map_key(key)?;
         self.of_scope()?;
         Ok(())
     }
