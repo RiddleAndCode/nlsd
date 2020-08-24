@@ -53,24 +53,32 @@ impl<'de> Deserializer<'de> {
     }
 
     fn parse_next(&mut self) -> Result<Parsed<'de>> {
-        self.inc_parse_result(parse_next(&self.src[self.index..]))
+        self.inc_parse_result(parse_next(self.src()))
     }
 
     fn parse_token(&mut self) -> Result<&'de str> {
-        self.inc_parse_result(parse_token(&self.src[self.index..]))
+        self.inc_parse_result(parse_token(self.src()))
     }
 
     fn parse_string(&mut self) -> Result<&'de str> {
-        self.inc_parse_result(parse_string(&self.src[self.index..]))
+        self.inc_parse_result(parse_string(self.src()))
     }
 
     fn parse_number(&mut self) -> Result<Number> {
-        self.inc_parse_result(parse_number(&self.src[self.index..]))
+        self.inc_parse_result(parse_number(self.src()))
+    }
+
+    fn parse_and_expect_token(&mut self, token: &'static str) -> Result<()> {
+        if self.parse_token()? == token {
+            Ok(())
+        } else {
+            Err(Error::ExpectedKeyWord(token))
+        }
     }
 
     fn inc_parse_result<T>(&mut self, result: ParseResult<T>) -> Result<T> {
         let (_, parsed, rest) = result.map_err(|err| self.inc_err_index(err.into()))?;
-        self.index += self.src.len() - rest.len();
+        self.index += self.src().len() - rest.len();
         Ok(parsed)
     }
 
@@ -84,6 +92,11 @@ impl<'de> Deserializer<'de> {
             }),
             err => err,
         }
+    }
+
+    #[inline]
+    fn src(&self) -> &'de str {
+        &self.src[self.index..]
     }
 }
 
@@ -444,6 +457,7 @@ struct Compound<'a, 'de> {
     scope: Option<&'de str>,
     kind: Option<CompoundKind>,
     is_empty: bool,
+    first: bool,
 }
 
 impl<'a, 'de> Compound<'a, 'de> {
@@ -454,6 +468,7 @@ impl<'a, 'de> Compound<'a, 'de> {
             scope: None,
             kind: None,
             is_empty: false,
+            first: true,
         }
     }
 
@@ -475,9 +490,7 @@ impl<'a, 'de> Compound<'a, 'de> {
         }
         match self.de.peek_next()? {
             Parsed::Token(EMPTY) => {
-                println!("{}", &self.de.src[self.de.index..]);
                 let _ = self.de.parse_token()?;
-                println!("{}", &self.de.src[self.de.index..]);
                 self.is_empty = true;
             }
             _ => (),
@@ -528,7 +541,7 @@ impl<'a, 'de> Compound<'a, 'de> {
 impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
     type Error = Error;
 
-    fn next_element_seed<T>(&mut self, _: T) -> Result<Option<T::Value>, Self::Error>
+    fn next_element_seed<T>(&mut self, seed: T) -> Result<Option<T::Value>, Self::Error>
     where
         T: de::DeserializeSeed<'de>,
     {
@@ -541,7 +554,30 @@ impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
         if !self.is_list() {
             return Err(Error::ExpectedListItem);
         }
-        Ok(None)
+        // TODO wrap in "transaction"
+        if self.first {
+            self.de.parse_and_expect_token(AN)?;
+        } else {
+            match self.de.peek_next() {
+                Ok(Parsed::Token(AND)) => {
+                    let _ = self.de.parse_token()?;
+                    let another = self.de.parse_token()?;
+                    if another != ANOTHER {
+                        return Err(Error::ExpectedKeyWord(ANOTHER));
+                    }
+                }
+                Ok(_) => return Err(Error::ExpectedKeyWord(AND)),
+                Err(Error::Parse(ParseError::UnexpectedEof)) => return Ok(None),
+                Err(err) => return Err(err),
+            }
+        }
+        self.de.parse_and_expect_token(ITEM)?;
+        // TODO check 'of `alias`'
+        self.de.parse_and_expect_token(IS)?;
+
+        let res = seed.deserialize(&mut *self.de)?;
+        self.first = false;
+        Ok(Some(res))
     }
 }
 
@@ -645,6 +681,28 @@ mod tests {
     #[test]
     fn deserialize_list() -> Result<()> {
         assert_eq!(Vec::<i64>::new(), from_str::<Vec<i64>>("the empty list")?);
+        assert_eq!(
+            Vec::<i64>::new(),
+            from_str::<Vec<i64>>("the empty `named list`")?
+        );
+        assert_eq!(
+            vec![1],
+            from_str::<Vec<i64>>("the list where an item is 1")?
+        );
+        assert_eq!(
+            vec![1],
+            from_str::<Vec<i64>>("the list henceforth `aliased list` where an item is 1")?
+        );
+        assert_eq!(
+            vec![1, 2],
+            from_str::<Vec<i64>>("the list where an item is 1 and another item is 2")?
+        );
+        assert_eq!(
+            (1, "string".to_string(), true),
+            from_str::<(i64, String, bool)>(
+                "the list where an item is 1 and another item is `string` and another item is true"
+            )?
+        );
         Ok(())
     }
 }
