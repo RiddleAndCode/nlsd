@@ -22,6 +22,7 @@ pub enum Error {
     ExpectedListItem,
     ExpectedPrimitiveMapKey,
     ExpectedStringMapKey,
+    ShouldBeDeclaredEmpty,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -79,6 +80,9 @@ impl fmt::Display for Error {
             Self::ExpectedListItem => f.write_str("expected list item"),
             Self::ExpectedPrimitiveMapKey => f.write_str("map key must be primitive"),
             Self::ExpectedStringMapKey => f.write_str("expected a string map key"),
+            Self::ShouldBeDeclaredEmpty => {
+                f.write_str("empty objects should be declared as 'empty'")
+            }
         }
     }
 }

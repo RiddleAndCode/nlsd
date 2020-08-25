@@ -31,7 +31,6 @@ const ANOTHER: &str = "another";
 pub struct Deserializer<'de> {
     src: &'de str,
     index: usize,
-    scope: Option<&'de str>,
 }
 
 fn unescape_str(string: &str) -> Cow<str> {
@@ -73,11 +72,7 @@ fn dehumanize_match(string: &str, candidates: &[&'static str]) -> Option<&'stati
 
 impl<'de> Deserializer<'de> {
     pub fn from_str(src: &'de str) -> Self {
-        Self {
-            src,
-            index: 0,
-            scope: None,
-        }
+        Self { src, index: 0 }
     }
 
     fn peek_next(&self) -> Result<Parsed<'de>> {
@@ -126,6 +121,10 @@ impl<'de> Deserializer<'de> {
             }),
             err => err,
         }
+    }
+
+    fn rollback(&mut self, index: usize) {
+        self.index = index
     }
 
     #[inline]
@@ -740,7 +739,9 @@ impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
         if !self.is_list() {
             return Err(Error::ExpectedListItem);
         }
-        // TODO wrap in "transaction"
+
+        let start_index = self.de.index;
+
         if self.first {
             self.de.parse_and_expect_token(AN)?;
         } else {
@@ -753,7 +754,23 @@ impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
             }
         }
         self.de.parse_and_expect_token(ITEM)?;
-        // TODO check 'of `alias`'
+
+        // TODO check if top level and throw error if scope not found
+        match self.de.peek_next()? {
+            Parsed::Token(OF) => {
+                let _ = self.de.parse_token()?;
+                let scope = self.de.parse_string()?;
+                if self.scope != Some(scope) {
+                    if self.first {
+                        return Err(Error::ShouldBeDeclaredEmpty);
+                    }
+                    self.de.rollback(start_index);
+                    return Ok(None);
+                }
+            }
+            _ => (),
+        }
+
         self.de.parse_and_expect_token(IS)?;
 
         let res = seed.deserialize(&mut *self.de)?;
@@ -778,7 +795,9 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
         if !self.is_object() {
             return Err(Error::ExpectedObjectEntry);
         }
-        // TODO wrap in "transaction"
+
+        let start_index = self.de.index;
+
         if !self.first {
             match self.de.parse_and_expect_token(AND) {
                 Ok(_) => (),
@@ -802,6 +821,22 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
         } else {
             seed.deserialize(MapKey { de: &mut *self.de })?
         };
+
+        // TODO check if top level and throw error if scope not found
+        match self.de.peek_next()? {
+            Parsed::Token(OF) => {
+                let _ = self.de.parse_token()?;
+                let scope = self.de.parse_string()?;
+                if self.scope != Some(scope) {
+                    if self.first {
+                        return Err(Error::ShouldBeDeclaredEmpty);
+                    }
+                    self.de.rollback(start_index);
+                    return Ok(None);
+                }
+            }
+            _ => (),
+        }
 
         self.de.parse_and_expect_token(IS)?;
 
@@ -952,6 +987,10 @@ mod tests {
                 "the list where an item is 1 and another item is `string` and another item is true"
             )?
         );
+        assert_eq!(
+            json!([1, 2]),
+            from_str::<Value>("the list where an item is 1 and another item is 2")?
+        );
         Ok(())
     }
 
@@ -985,6 +1024,10 @@ mod tests {
                 .collect::<HashMap<bool, u8>>(),
             from_str::<HashMap<bool, u8>>("the object where true is 1 and false is 0")?
         );
+        assert_eq!(
+            json!({"red": 100, "green": 200, "blue": 50}),
+            from_str::<Value>("the object where `red` is 100 and `green` is 200 and `blue` is 50")?
+        );
         Ok(())
     }
 
@@ -1009,6 +1052,47 @@ mod tests {
             },
             from_str::<User>("the object where `user_name` is `rob` and the `id` is 1")?
         );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_nested_list() -> Result<()> {
+        assert_eq!((1, (2, 3), 4), from_str::<(u8, (u8, u8), u8)>("the list henceforth `the list` where an item is 1 and another item is the list where an item is 2 and another item is 3 and another item of `the list` is 4")?);
+        assert_eq!(
+            (((1,), 2), 3),
+            from_str::<(((u8,), u8), u8)>("the list henceforth `the list` where an item is the list henceforth `the second list` where an item is the list where an item is 1 and another item of `the second list` is 2 and another item of `the list` is 3")?
+        );
+        assert_eq!(
+            (1, (2, (3,))),
+            from_str::<(u8, (u8, (u8,)))>("the list where an item is 1 and another item is the list where an item is 2 and another item is the list where an item is 3")?
+        );
+        assert_eq!(
+            json!([[[1], 2], 3]),
+            from_str::<Value>("the list henceforth `the list` where an item is the list henceforth `the second list` where an item is the list where an item is 1 and another item of `the second list` is 2 and another item of `the list` is 3")?
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_nested_map() -> Result<()> {
+        assert_eq!(json!({"a": {"b": 1}, "c": 2}), from_str::<Value>("the object henceforth `the object` where `a` is the object where `b` is 1 and `c` of `the object` is 2")?);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_nested_object() -> Result<()> {
+        #[derive(Eq, PartialEq, Debug, Deserialize)]
+        struct Details {
+            name: &'static str,
+            age: u64,
+        }
+        #[derive(Eq, PartialEq, Debug, Deserialize)]
+        struct User {
+            id: usize,
+            details: Details,
+            job: &'static str,
+        }
+        assert_eq!(User { id: 1, details: Details { name: "Dave", age: 37 }, job: "accountant"}, from_str::<User>("the `user` henceforth `the user` where the `id` is 1 and the `details` is the object where the `name` is `Dave` and `age` is 37 and the `job` of `the user` is `accountant`")?);
         Ok(())
     }
 }
