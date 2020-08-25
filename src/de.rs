@@ -23,6 +23,7 @@ const WHERE: &str = "where";
 const AN: &str = "an";
 const ITEM: &str = "item";
 const OF: &str = "of";
+const WHICH: &str = "which";
 const IS: &str = "is";
 const AND: &str = "and";
 const ANOTHER: &str = "another";
@@ -49,11 +50,29 @@ fn dehumanize_snake(string: &str) -> String {
         if ch.is_whitespace() {
             was_whitespace = true;
         } else {
-            if was_whitespace && !string.is_empty() {
+            if was_whitespace && !out.is_empty() {
                 out.push('_');
             }
             was_whitespace = false;
             out.push(ch);
+        }
+    }
+    out
+}
+
+fn dehumanize_camel(string: &str) -> String {
+    let mut out = String::new();
+    let mut was_whitespace = false;
+    for ch in string.chars() {
+        if ch.is_whitespace() {
+            was_whitespace = true;
+        } else {
+            if was_whitespace || out.is_empty() {
+                ch.to_uppercase().for_each(|ch| out.push(ch));
+            } else {
+                out.push(ch);
+            }
+            was_whitespace = false;
         }
     }
     out
@@ -65,6 +84,10 @@ fn dehumanize_match(string: &str, candidates: &[&'static str]) -> Option<&'stati
     }
     let snake = dehumanize_snake(string);
     if let Some(string) = candidates.into_iter().find(|&&s| s == snake) {
+        return Some(string);
+    }
+    let camel = dehumanize_camel(string);
+    if let Some(string) = candidates.into_iter().find(|&&s| s == camel) {
         return Some(string);
     }
     None
@@ -145,6 +168,22 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                 TRUE | FALSE | ON | OFF | ENABLED | DISABLED => self.deserialize_bool(visitor),
                 EMPTY | NOTHING => self.deserialize_unit(visitor),
                 THE => {
+                    let start_index = self.index;
+                    let _ = self.parse_token()?;
+                    match self.parse_next()? {
+                        Parsed::Str(_) => match self.parse_token()? {
+                            WHICH => {
+                                self.rollback(start_index);
+                                return self.deserialize_newtype_struct("", visitor);
+                            }
+                            _ => (),
+                        },
+                        Parsed::Number(_) => {
+                            return Err(Error::ExpectedObjectDescriptor);
+                        }
+                        _ => (),
+                    }
+                    self.rollback(start_index);
                     let mut compound = Compound::new(self);
                     compound.describe()?;
                     if compound.is_list() {
@@ -153,7 +192,7 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                         visitor.visit_map(compound)
                     }
                 }
-                _ => Err(Error::Unimplemented),
+                _ => Err(Error::ExpectedKeyWord(THE)), // TODO this isn't really correct
             },
             Parsed::Number(Number::Float(_)) => self.deserialize_f64(visitor),
             Parsed::Number(Number::Integer(_)) => self.deserialize_i64(visitor),
@@ -486,16 +525,14 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
-        // TODO base64 decode?
-        Err(Error::Unimplemented)
+        Err(Error::BytesUnsupported)
     }
 
     fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        // TODO base64 decode?
-        Err(Error::Unimplemented)
+        Err(Error::BytesUnsupported)
     }
 
     fn deserialize_struct<V>(
@@ -510,8 +547,24 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_map(Compound::new_with_expected(self, fields))
     }
 
+    fn deserialize_enum<V>(
+        self,
+        _: &'static str,
+        variants: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, Self::Error>
+    where
+        V: de::Visitor<'de>,
+    {
+        match self.peek_next()? {
+            Parsed::Token(THE) => visitor.visit_enum(VariantAccess::new(self, variants)),
+            Parsed::Str(_) => visitor.visit_enum(UnitVariantAccess::new(self, variants)),
+            _ => Err(Error::ExpectedKeyWord(THE)), // TODO not correct, could also expect a string
+        }
+    }
+
     serde::forward_to_deserialize_any! {
-        enum ignored_any
+        ignored_any
     }
 }
 
@@ -605,7 +658,7 @@ impl<'a, 'de> de::Deserializer<'de> for MapExpectedKey<'a, 'de> {
     }
 
     serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64
+        bool i8 i16 i32 i64 u8 u16 u32 u64 f32 f64
         bytes byte_buf option unit unit_struct newtype_struct seq tuple
         tuple_struct map struct enum identifier ignored_any
     }
@@ -852,6 +905,132 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
     }
 }
 
+struct VariantAccess<'a, 'de> {
+    de: &'a mut Deserializer<'de>,
+    expected_variants: &'static [&'static str],
+    start_index: usize,
+}
+
+impl<'a, 'de> VariantAccess<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>, expected_variants: &'static [&'static str]) -> Self {
+        let start_index = de.index;
+        Self {
+            de,
+            expected_variants,
+            start_index,
+        }
+    }
+}
+
+impl<'a, 'de> de::EnumAccess<'de> for VariantAccess<'a, 'de> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        self.de.parse_and_expect_token(THE)?;
+        let value = seed.deserialize(MapExpectedKey {
+            de: &mut *self.de,
+            expected_keys: self.expected_variants,
+        })?;
+        Ok((value, self))
+    }
+}
+
+impl<'a, 'de> de::VariantAccess<'de> for VariantAccess<'a, 'de> {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<(), Self::Error> {
+        Err(Error::ExpectedUnitVariant)
+    }
+
+    fn newtype_variant_seed<T>(self, seed: T) -> Result<T::Value>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        self.de.parse_and_expect_token(WHICH)?;
+        self.de.parse_and_expect_token(IS)?;
+        seed.deserialize(self.de)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.rollback(self.start_index);
+        de::Deserializer::deserialize_seq(self.de, visitor)
+    }
+
+    fn struct_variant<V>(self, fields: &'static [&'static str], visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        self.de.rollback(self.start_index);
+        de::Deserializer::deserialize_struct(self.de, "", fields, visitor)
+    }
+}
+
+struct UnitVariantAccess<'a, 'de> {
+    de: &'a mut Deserializer<'de>,
+    expected_variants: &'static [&'static str],
+}
+
+impl<'a, 'de> UnitVariantAccess<'a, 'de> {
+    fn new(de: &'a mut Deserializer<'de>, expected_variants: &'static [&'static str]) -> Self {
+        Self {
+            de,
+            expected_variants,
+        }
+    }
+}
+
+impl<'a, 'de> de::EnumAccess<'de> for UnitVariantAccess<'a, 'de> {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
+    where
+        V: de::DeserializeSeed<'de>,
+    {
+        let value = seed.deserialize(MapExpectedKey {
+            de: &mut *self.de,
+            expected_keys: self.expected_variants,
+        })?;
+        Ok((value, self))
+    }
+}
+
+impl<'a, 'de> de::VariantAccess<'de> for UnitVariantAccess<'a, 'de> {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<()> {
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T>(self, _seed: T) -> Result<T::Value>
+    where
+        T: de::DeserializeSeed<'de>,
+    {
+        Err(Error::ExpectedUnitVariant)
+    }
+
+    fn tuple_variant<V>(self, _len: usize, _visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        Err(Error::ExpectedUnitVariant)
+    }
+
+    fn struct_variant<V>(self, _fields: &'static [&'static str], _visitor: V) -> Result<V::Value>
+    where
+        V: de::Visitor<'de>,
+    {
+        Err(Error::ExpectedUnitVariant)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1093,6 +1272,86 @@ mod tests {
             job: &'static str,
         }
         assert_eq!(User { id: 1, details: Details { name: "Dave", age: 37 }, job: "accountant"}, from_str::<User>("the `user` henceforth `the user` where the `id` is 1 and the `details` is the object where the `name` is `Dave` and `age` is 37 and the `job` of `the user` is `accountant`")?);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_unit_variant() -> Result<()> {
+        #[derive(Deserialize, Eq, PartialEq, Debug)]
+        enum ExampleEnum {
+            Variant,
+            OtherVariant,
+            LastVariant,
+        }
+
+        assert_eq!(ExampleEnum::Variant, from_str::<ExampleEnum>("`variant`")?);
+        assert_eq!(
+            ExampleEnum::OtherVariant,
+            from_str::<ExampleEnum>("`other variant`")?
+        );
+        assert_eq!(
+            ExampleEnum::LastVariant,
+            from_str::<ExampleEnum>("`last variant`")?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_newtype_struct() -> Result<()> {
+        #[derive(Deserialize, Eq, PartialEq, Debug)]
+        enum ExampleEnum {
+            Variant(u64),
+            OtherVariant(bool),
+            LastVariant(&'static str),
+        }
+
+        assert_eq!(
+            ExampleEnum::Variant(1),
+            from_str::<ExampleEnum>("the `variant` which is 1")?
+        );
+        assert_eq!(
+            ExampleEnum::OtherVariant(true),
+            from_str::<ExampleEnum>("the `other variant` which is true")?
+        );
+        assert_eq!(
+            ExampleEnum::LastVariant("cool"),
+            from_str::<ExampleEnum>("the `last variant` which is `cool`")?
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_enum() -> Result<()> {
+        #[derive(Deserialize, Eq, PartialEq, Debug)]
+        enum ExampleEnum {
+            Variant(u64),
+            OtherVariant { id: usize, name: &'static str },
+            LastVariant(bool, &'static str),
+        }
+
+        assert_eq!(
+            ExampleEnum::Variant(1),
+            from_str::<ExampleEnum>("the `variant` which is 1")?
+        );
+
+        assert_eq!(
+            ExampleEnum::OtherVariant {
+                id: 2,
+                name: "sample name"
+            },
+            from_str::<ExampleEnum>(
+                "the `other variant` where the `name` is `sample name` and the `id` is 2"
+            )?
+        );
+        assert_eq!(
+            ExampleEnum::LastVariant(true, "cool"),
+            from_str::<ExampleEnum>(
+                "the `last variant` where an item is true and another item is `cool`"
+            )?
+        );
+
         Ok(())
     }
 }

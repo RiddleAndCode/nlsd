@@ -220,8 +220,7 @@ where
     }
 
     fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        // TODO base64 encode?
-        Err(Error::Unimplemented)
+        Err(Error::BytesUnsupported)
     }
 
     fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> {
@@ -292,13 +291,15 @@ where
         self,
         _: &'static str,
         _: u32,
-        _: &'static str,
+        variant: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: ser::Serialize,
     {
-        // TODO I don't know if this is right :/
+        self.writer.write_all(b"the ")?;
+        self.serialize_str(&humanize(variant))?;
+        self.writer.write_all(b" which is ")?;
         value.serialize(self)
     }
 }
@@ -756,6 +757,24 @@ pub mod tests {
         assert_eq!(to_string(&Example)?, "empty");
         assert_eq!(to_string(&ExampleEnum::Example)?, "`example`");
         assert_eq!(to_string(&ExampleEnum::SampleCool)?, "`sample cool`");
+        Ok(())
+    }
+
+    #[test]
+    fn serialize_newtype_variant() -> Result<()> {
+        #[derive(Serialize)]
+        enum ExampleEnum {
+            Variant(u64),
+            OtherVariant(bool),
+        }
+        assert_eq!(
+            to_string(&ExampleEnum::Variant(1))?,
+            "the `variant` which is 1"
+        );
+        assert_eq!(
+            to_string(&ExampleEnum::OtherVariant(true))?,
+            "the `other variant` which is true"
+        );
         Ok(())
     }
 

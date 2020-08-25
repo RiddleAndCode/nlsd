@@ -7,7 +7,7 @@ pub enum Error {
     Custom(String),
     Io(io::Error),
     UnexpectedKeyType,
-    Unimplemented,
+    BytesUnsupported,
     Parse(ParseError),
     ExpectedBool,
     ExpectedNull,
@@ -23,6 +23,8 @@ pub enum Error {
     ExpectedPrimitiveMapKey,
     ExpectedStringMapKey,
     ShouldBeDeclaredEmpty,
+    ExpectedUnitVariant,
+    UnexpectedUnitVariant,
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -63,7 +65,7 @@ impl fmt::Display for Error {
             Self::Custom(msg) => f.write_fmt(format_args!("custom: {}", msg)),
             Self::Io(err) => f.write_fmt(format_args!("io: {}", err)),
             Self::UnexpectedKeyType => f.write_str("keys can only be string like"),
-            Self::Unimplemented => f.write_str("UNIMPLEMENTED"),
+            Self::BytesUnsupported => f.write_str("bytes unsupported"),
             Self::Parse(err) => f.write_fmt(format_args!("parse error: {}", err)),
             Self::ExpectedBool => f.write_str("expected boolean"),
             Self::ExpectedNull => f.write_str("expected null"),
@@ -83,6 +85,8 @@ impl fmt::Display for Error {
             Self::ShouldBeDeclaredEmpty => {
                 f.write_str("empty objects should be declared as 'empty'")
             }
+            Self::ExpectedUnitVariant => f.write_str("expected unit variant"),
+            Self::UnexpectedUnitVariant => f.write_str("unexpected unit variant"),
         }
     }
 }
