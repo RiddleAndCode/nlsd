@@ -2,6 +2,7 @@ use crate::error::{Error, Result};
 use serde::ser;
 use std::io::Write;
 
+/// A structure that serializes Rust values into a writer `W`
 pub struct Serializer<W> {
     context: Vec<String>,
     writer: W,
@@ -17,6 +18,7 @@ pub struct Compound<'a, W> {
 }
 
 impl<W> Serializer<W> {
+    /// Construct a new serializer from a writer `W`
     pub fn new(writer: W) -> Self {
         Self::with_context(writer, Default::default())
     }
@@ -219,8 +221,8 @@ where
         Ok(())
     }
 
-    fn serialize_bytes(self, _v: &[u8]) -> Result<Self::Ok, Self::Error> {
-        Err(Error::BytesUnsupported)
+    fn serialize_bytes(self, v: &[u8]) -> Result<Self::Ok, Self::Error> {
+        self.serialize_str(core::str::from_utf8(v)?)
     }
 
     fn serialize_tuple(self, _: usize) -> Result<Self::SerializeTuple, Self::Error> {

@@ -28,6 +28,7 @@ const IS: &str = "is";
 const AND: &str = "and";
 const ANOTHER: &str = "another";
 
+/// A structure that deserializes NLSD into Rust structures
 #[derive(Debug)]
 pub struct Deserializer<'de> {
     src: &'de str,
@@ -94,8 +95,17 @@ fn dehumanize_match(string: &str, candidates: &[&'static str]) -> Option<&'stati
 }
 
 impl<'de> Deserializer<'de> {
+    /// Construct a new Deserializer from a string
     pub fn from_str(src: &'de str) -> Self {
         Self { src, index: 0 }
+    }
+
+    /// Construct a new Deserializer from the byte representation of a string
+    pub fn from_slice(src: &'de [u8]) -> Result<Self> {
+        Ok(Self {
+            src: core::str::from_utf8(src)?,
+            index: 0,
+        })
     }
 
     fn peek_next(&self) -> Result<Parsed<'de>> {
@@ -521,18 +531,21 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         visitor.visit_map(Compound::new(self))
     }
 
-    fn deserialize_bytes<V>(self, _: V) -> Result<V::Value, Self::Error>
+    fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        Err(Error::BytesUnsupported)
+        match unescape_str(self.parse_string()?) {
+            Cow::Borrowed(string) => visitor.visit_borrowed_bytes(string.as_ref()),
+            Cow::Owned(string) => visitor.visit_byte_buf(string.into_bytes()),
+        }
     }
 
-    fn deserialize_byte_buf<V>(self, _: V) -> Result<V::Value, Self::Error>
+    fn deserialize_byte_buf<V>(self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        Err(Error::BytesUnsupported)
+        visitor.visit_byte_buf(unescape_str(self.parse_string()?).to_string().into_bytes())
     }
 
     fn deserialize_struct<V>(

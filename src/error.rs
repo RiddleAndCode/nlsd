@@ -2,12 +2,12 @@ use super::parser::ParseError;
 use serde::{de, ser};
 use std::{fmt, io};
 
+/// Error that may occur during serializing or deserializing
 #[derive(Debug)]
 pub enum Error {
     Custom(String),
     Io(io::Error),
-    UnexpectedKeyType,
-    BytesUnsupported,
+    InvalidUtf8,
     Parse(ParseError),
     ExpectedBool,
     ExpectedNull,
@@ -27,6 +27,7 @@ pub enum Error {
     UnexpectedUnitVariant,
 }
 
+/// Convenience wrapper for a `Result<T, Error>`
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 impl From<io::Error> for Error {
@@ -50,6 +51,12 @@ impl From<ParseError> for Error {
     }
 }
 
+impl From<core::str::Utf8Error> for Error {
+    fn from(_: core::str::Utf8Error) -> Self {
+        Error::InvalidUtf8
+    }
+}
+
 impl de::Error for Error {
     fn custom<T>(msg: T) -> Self
     where
@@ -64,8 +71,7 @@ impl fmt::Display for Error {
         match self {
             Self::Custom(msg) => f.write_fmt(format_args!("custom: {}", msg)),
             Self::Io(err) => f.write_fmt(format_args!("io: {}", err)),
-            Self::UnexpectedKeyType => f.write_str("keys can only be string like"),
-            Self::BytesUnsupported => f.write_str("bytes unsupported"),
+            Self::InvalidUtf8 => f.write_str("strings must be valid utf8"),
             Self::Parse(err) => f.write_fmt(format_args!("parse error: {}", err)),
             Self::ExpectedBool => f.write_str("expected boolean"),
             Self::ExpectedNull => f.write_str("expected null"),
