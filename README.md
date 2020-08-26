@@ -1,3 +1,5 @@
+# Natural Language Structured Document
+
 Natural Language Structured Documents or NLSDs for short are English representations of serializable/deserializable data. The purpose of such a document is to make equal the understanding of data and the data itself. This is important for example when users sign off on data (e.g. with a cryptographic signature) that the presentation of the data itself is what they are signing.
 
 An NLSD attempts to represent the following data and datatypes
