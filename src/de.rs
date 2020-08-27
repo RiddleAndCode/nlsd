@@ -186,20 +186,21 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                                 self.rollback(start_index);
                                 return self.deserialize_newtype_struct("", visitor);
                             }
-                            _ => (),
+                            _ => {
+                                self.rollback(start_index);
+                                return self.deserialize_enum("", &[], visitor);
+                            }
                         },
-                        Parsed::Number(_) => {
-                            return Err(Error::ExpectedObjectDescriptor);
+                        _ => {
+                            self.rollback(start_index);
+                            let mut compound = Compound::new(self);
+                            compound.describe()?;
+                            if compound.is_list() {
+                                visitor.visit_seq(compound)
+                            } else {
+                                visitor.visit_map(compound)
+                            }
                         }
-                        _ => (),
-                    }
-                    self.rollback(start_index);
-                    let mut compound = Compound::new(self);
-                    compound.describe()?;
-                    if compound.is_list() {
-                        visitor.visit_seq(compound)
-                    } else {
-                        visitor.visit_map(compound)
                     }
                 }
                 _ => Err(Error::ExpectedKeyWord(THE)), // TODO this isn't really correct
