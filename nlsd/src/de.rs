@@ -1,5 +1,5 @@
 use super::error::{Error, Result};
-use super::parser::{
+use nlsd_parser::{
     parse_next, parse_number, parse_string, parse_token, Number, ParseError, ParseResult, Parsed,
 };
 use serde::de;
