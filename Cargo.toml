@@ -2,5 +2,6 @@
 members = [
     "nlsd",
     "noql",
-    "parser"
+    "parser",
+    "value"
 ]
