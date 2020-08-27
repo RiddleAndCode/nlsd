@@ -7,7 +7,7 @@ pub enum Error {
     Custom(String),
     Io(io::Error),
     InvalidUtf8,
-    Parse(nlsd_parser::ParseError),
+    Parse(nl_parser::ParseError),
     ExpectedBool,
     ExpectedNull,
     ExpectedInteger,
@@ -44,8 +44,8 @@ impl ser::Error for Error {
     }
 }
 
-impl From<nlsd_parser::ParseError> for Error {
-    fn from(err: nlsd_parser::ParseError) -> Self {
+impl From<nl_parser::ParseError> for Error {
+    fn from(err: nl_parser::ParseError) -> Self {
         Error::Parse(err)
     }
 }

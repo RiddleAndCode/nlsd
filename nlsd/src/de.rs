@@ -1,5 +1,5 @@
 use super::error::{Error, Result};
-use nlsd_parser::{
+use nl_parser::{
     parse_next, parse_number, parse_string, parse_token, Number, ParseError, ParseResult, Parsed,
 };
 use serde::de;
@@ -110,7 +110,7 @@ impl<'de> Deserializer<'de> {
 
     fn peek_next(&self) -> Result<Parsed<'de>> {
         let (_, parsed, _) =
-            parse_next(&self.src[self.index..]).map_err(|err| self.inc_err_index(err.into()))?;
+            parse_next(self.src()).map_err(|err| self.inc_err_index(err.into()))?;
         Ok(parsed)
     }
 

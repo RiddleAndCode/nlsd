@@ -9,7 +9,7 @@ default = []
 
 [dependencies]
 serde = "1.0.114"
-nlsd-parser = { path = "../parser" }
+nl-parser = { path = "../parser" }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
