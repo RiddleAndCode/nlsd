@@ -1,6 +1,8 @@
+mod de;
+mod format;
 mod ser;
-pub(crate) mod unit;
-pub(crate) mod value;
+mod unit;
+mod value;
 
-pub use unit::{NoUnit, SimpleValue};
-pub use value::{Key, Map, Value};
+pub use unit::{NoUnit, SimpleValue, UnitDisplay};
+pub use value::{Key, Map, Number, Value};

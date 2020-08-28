@@ -1,10 +1,7 @@
+use crate::format::*;
 use crate::unit::UnitDisplay;
 use crate::value::{Key, Number, Value};
 use serde::ser::{self, SerializeMap, SerializeSeq, SerializeStructVariant};
-
-const DATETIME_FORMAT: &str = "%B %-d %-H:%M:%S %-Y";
-const TIME_FORMAT: &str = "%-H:%M:%S";
-const DATE_FORMAT: &str = "%B %-d %-Y";
 
 impl ser::Serialize for Key {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -58,16 +55,15 @@ where
                     serializer.serialize_str(&format!("{} {}", value, unit.unit_display()))
                 }
                 len => {
-                    let mut st = serializer.serialize_struct_variant("", 0, "amount", len)?;
+                    let mut st =
+                        serializer.serialize_struct_variant("", 0, AMOUNT_VARIANT_NAME, len)?;
                     for (k, v) in obj {
                         st.serialize_field(k.unit_display(), v)?;
                     }
                     st.end()
                 }
             },
-            Value::Custom(t) => {
-                serializer.serialize_newtype_variant("", 0, "non standard object", t)
-            }
+            Value::Custom(t) => serializer.serialize_newtype_variant("", 0, CUSTOM_VARIANT_NAME, t),
         }
     }
 }

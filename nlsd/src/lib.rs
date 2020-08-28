@@ -1,7 +1,7 @@
-pub(crate) mod de;
-pub(crate) mod error;
-pub(crate) mod helpers;
-pub(crate) mod ser;
+mod de;
+mod error;
+mod helpers;
+mod ser;
 
 pub use de::Deserializer;
 pub use error::{Error, Result};

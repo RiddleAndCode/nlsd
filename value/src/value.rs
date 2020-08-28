@@ -79,6 +79,17 @@ impl ser::Serialize for Number {
     }
 }
 
+impl std::str::FromStr for Number {
+    type Err = std::num::ParseFloatError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(num) = s.parse() {
+            Ok(Number::Integer(num))
+        } else {
+            Ok(Number::Float(s.parse()?))
+        }
+    }
+}
+
 #[derive(Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub enum Key {
     Bool(bool),
@@ -86,7 +97,7 @@ pub enum Key {
     String(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Eq, PartialEq)]
 pub enum Value<U, T> {
     Null,
     Bool(bool),
