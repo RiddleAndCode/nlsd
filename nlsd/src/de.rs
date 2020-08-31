@@ -181,24 +181,19 @@ impl<'a, 'de> de::Deserializer<'de> for &'a mut Deserializer<'de> {
                     let start_index = self.index;
                     let _ = self.parse_token()?;
                     match self.parse_next()? {
-                        Parsed::Str(_) => match self.parse_token()? {
-                            WHICH => {
-                                self.rollback(start_index);
-                                return self.deserialize_newtype_struct("", visitor);
-                            }
-                            _ => {
-                                self.rollback(start_index);
-                                return self.deserialize_enum("", &[], visitor);
-                            }
-                        },
+                        Parsed::Str(_) => {
+                            self.rollback(start_index);
+                            return self.deserialize_enum("", &[], visitor);
+                        }
                         _ => {
+                            // TODO best way to handle "the empty `object name`"?
                             self.rollback(start_index);
                             let mut compound = Compound::new(self);
                             compound.describe()?;
-                            if compound.is_list() {
-                                visitor.visit_seq(compound)
-                            } else {
+                            if compound.is_object() {
                                 visitor.visit_map(compound)
+                            } else {
+                                visitor.visit_seq(compound)
                             }
                         }
                     }
@@ -589,6 +584,7 @@ struct MapKey<'a, 'de> {
 struct MapExpectedKey<'a, 'de> {
     de: &'a mut Deserializer<'de>,
     expected_keys: &'static [&'static str],
+    default_dehumanize: Box<dyn Fn(&str) -> String>,
 }
 
 macro_rules! forward_to_internal_de {
@@ -624,6 +620,8 @@ impl<'a, 'de> de::Deserializer<'de> for MapKey<'a, 'de> {
         }
     }
 
+    // TODO deserialize_enum handling for unit enum case
+
     forward_to_internal_de!(
         deserialize_bool deserialize_i64 deserialize_i32 deserialize_i16 deserialize_i8
         deserialize_u64 deserialize_u32 deserialize_u16 deserialize_u8 deserialize_f32 deserialize_f64
@@ -656,7 +654,7 @@ impl<'a, 'de> de::Deserializer<'de> for MapExpectedKey<'a, 'de> {
         let string = self.de.parse_string()?;
         match dehumanize_match(&unescape_str(string), self.expected_keys) {
             Some(string) => visitor.visit_borrowed_str(string),
-            None => visitor.visit_string(dehumanize_snake(string)),
+            None => visitor.visit_string((self.default_dehumanize)(string)),
         }
     }
 
@@ -722,11 +720,11 @@ impl<'a, 'de> Compound<'a, 'de> {
     }
 
     fn is_list(&self) -> bool {
-        self.is_empty || matches!(self.kind, Some(CompoundKind::List))
+        matches!(self.kind, Some(CompoundKind::List)) || self.is_empty && self.kind.is_none()
     }
 
     fn is_object(&self) -> bool {
-        self.is_empty || matches!(self.kind, Some(CompoundKind::Object))
+        matches!(self.kind, Some(CompoundKind::Object)) || self.is_empty && self.kind.is_none()
     }
 
     fn is_described(&self) -> bool {
@@ -884,6 +882,7 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
             seed.deserialize(MapExpectedKey {
                 de: &mut *self.de,
                 expected_keys,
+                default_dehumanize: Box::new(dehumanize_snake),
             })?
         } else {
             seed.deserialize(MapKey { de: &mut *self.de })?
@@ -948,6 +947,7 @@ impl<'a, 'de> de::EnumAccess<'de> for VariantAccess<'a, 'de> {
         let value = seed.deserialize(MapExpectedKey {
             de: &mut *self.de,
             expected_keys: self.expected_variants,
+            default_dehumanize: Box::new(dehumanize_camel),
         })?;
         Ok((value, self))
     }
@@ -1011,6 +1011,7 @@ impl<'a, 'de> de::EnumAccess<'de> for UnitVariantAccess<'a, 'de> {
         let value = seed.deserialize(MapExpectedKey {
             de: &mut *self.de,
             expected_keys: self.expected_variants,
+            default_dehumanize: Box::new(dehumanize_camel),
         })?;
         Ok((value, self))
     }
@@ -1184,6 +1185,7 @@ mod tests {
             json!([1, 2]),
             from_str::<Value>("the list where an item is 1 and another item is 2")?
         );
+        assert_eq!(json!([]), from_str::<Value>("the empty list")?);
         Ok(())
     }
 
@@ -1221,6 +1223,7 @@ mod tests {
             json!({"red": 100, "green": 200, "blue": 50}),
             from_str::<Value>("the object where `red` is 100 and `green` is 200 and `blue` is 50")?
         );
+        assert_eq!(json!({}), from_str::<Value>("the empty object")?);
         Ok(())
     }
 

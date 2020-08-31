@@ -1,4 +1,3 @@
-use serde::ser;
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -63,18 +62,6 @@ impl core::hash::Hash for Number {
         match self {
             Number::Integer(n) => state.write_i64(*n),
             Number::Float(f) => state.write_u64(f.to_bits()),
-        }
-    }
-}
-
-impl ser::Serialize for Number {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: ser::Serializer,
-    {
-        match self {
-            Number::Integer(n) => serializer.serialize_i64(*n),
-            Number::Float(f) => serializer.serialize_f64(*f),
         }
     }
 }

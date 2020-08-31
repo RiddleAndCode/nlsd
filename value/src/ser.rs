@@ -68,13 +68,46 @@ where
     }
 }
 
+impl ser::Serialize for Number {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        match self {
+            Number::Integer(n) => serializer.serialize_i64(*n),
+            Number::Float(f) => serializer.serialize_f64(*f),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unit::{NoUnit, SimpleValue};
+    use crate::unit::{NoCustom, NoUnit, SimpleValue};
     use nlsd::{to_string, Result};
     use serde::Serialize;
     use time::PrimitiveDateTime;
+
+    #[derive(Ord, PartialOrd, Eq, PartialEq, Hash)]
+    enum Currency {
+        Usd,
+        Eur,
+    }
+
+    #[derive(Serialize)]
+    struct User {
+        id: usize,
+        name: &'static str,
+    }
+
+    impl UnitDisplay for Currency {
+        fn unit_display(&self) -> &'static str {
+            match self {
+                Currency::Usd => "dollars",
+                Currency::Eur => "euros",
+            }
+        }
+    }
 
     #[test]
     fn serialize_key_bool() -> Result<()> {
@@ -194,22 +227,9 @@ mod tests {
 
     #[test]
     fn serialize_amount() -> Result<()> {
-        #[derive(Ord, PartialOrd, Eq, PartialEq, Hash)]
-        enum Currency {
-            Usd,
-            Eur,
-        }
-        impl UnitDisplay for Currency {
-            fn unit_display(&self) -> &'static str {
-                match self {
-                    Currency::Usd => "dollars",
-                    Currency::Eur => "euros",
-                }
-            }
-        }
         assert_eq!(
             "`10 dollars`",
-            to_string(&Value::<Currency, ()>::Amount(
+            to_string(&Value::<Currency, NoCustom>::Amount(
                 vec![(Currency::Usd, Number::Integer(10))]
                     .into_iter()
                     .collect()
@@ -217,7 +237,7 @@ mod tests {
         );
         assert_eq!(
             "the `amount` where the `dollars` is 10 and the `euros` is 11.5",
-            to_string(&Value::<Currency, ()>::Amount(
+            to_string(&Value::<Currency, NoCustom>::Amount(
                 vec![
                     (Currency::Usd, Number::Integer(10)),
                     (Currency::Eur, Number::Float(11.5))
@@ -231,11 +251,6 @@ mod tests {
 
     #[test]
     fn serialize_custom() -> Result<()> {
-        #[derive(Serialize)]
-        pub struct User {
-            id: usize,
-            name: &'static str,
-        }
         assert_eq!(
             "the `non standard object` which is the `user` where the `id` is 1 and the `name` is `bob`",
             to_string(&Value::<NoUnit, User>::Custom(User { id: 1, name: "bob" }))?
