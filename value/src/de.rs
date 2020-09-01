@@ -1,5 +1,8 @@
 use crate::format::*;
-use crate::value::{Key, Map, Number, Value};
+use crate::key::Key;
+use crate::map::Map;
+use crate::number::Number;
+use crate::value::Value;
 use serde::de;
 use serde::de::{Error as DeError, VariantAccess};
 use std::fmt;
@@ -135,7 +138,7 @@ where
         while let Some(next) = seq.next_element()? {
             out.push(next);
         }
-        Ok(Value::Array(out))
+        Ok(Value::Array(out.into()))
     }
 
     fn visit_map<A>(mut self, mut map: A) -> Result<Self::Value, A::Error>
@@ -293,6 +296,7 @@ impl<'de> de::Deserialize<'de> for Number {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::array::Array;
     use crate::unit::{NoCustom, NoUnit, SimpleValue};
     use nlsd::{from_str, Result};
     use serde::Deserialize;
@@ -458,18 +462,21 @@ mod tests {
     #[test]
     fn deserialize_array() -> Result<()> {
         assert_eq!(
-            Value::Array(vec![
-                Value::Number(Number::Integer(1)),
-                Value::Number(Number::Integer(2))
-            ]),
+            Value::Array(
+                vec![
+                    Value::Number(Number::Integer(1)),
+                    Value::Number(Number::Integer(2))
+                ]
+                .into()
+            ),
             from_str::<SimpleValue>("the list where an item is 1 and another item is 2")?
         );
         assert_eq!(
-            Value::Array(vec![Value::Bool(true), Value::Null].into_iter().collect()),
+            Value::Array(vec![Value::Bool(true), Value::Null].into()),
             from_str::<SimpleValue>("the list where an item is true and another item is nothing")?
         );
         assert_eq!(
-            Value::Array(vec![]),
+            Value::Array(Array::new()),
             from_str::<SimpleValue>("the empty list")?
         );
         Ok(())

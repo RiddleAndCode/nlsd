@@ -1,6 +1,8 @@
 use crate::format::*;
+use crate::key::Key;
+use crate::number::Number;
 use crate::unit::UnitDisplay;
-use crate::value::{Key, Number, Value};
+use crate::value::Value;
 use serde::ser::{self, SerializeMap, SerializeSeq, SerializeStructVariant};
 
 impl ser::Serialize for Key {
@@ -217,10 +219,13 @@ mod tests {
     fn serialize_list() -> Result<()> {
         assert_eq!(
             "the list where an item is `value1` and another item is `value2`",
-            to_string(&SimpleValue::Array(vec![
-                SimpleValue::String("value1".to_string()),
-                SimpleValue::String("value2".to_string())
-            ]))?
+            to_string(&SimpleValue::Array(
+                vec![
+                    SimpleValue::String("value1".to_string()),
+                    SimpleValue::String("value2".to_string())
+                ]
+                .into()
+            ))?
         );
         Ok(())
     }
