@@ -1,5 +1,7 @@
+use crate::amount::Amount;
 use crate::key::Key;
 use crate::number::Number;
+use crate::unit::NoUnit;
 use time::{Date, PrimitiveDateTime, Time};
 
 pub type Map<K, V> = std::collections::BTreeMap<K, V>;
@@ -9,7 +11,7 @@ pub enum Value<U, T> {
     Null,
     Bool(bool),
     Number(Number),
-    Amount(Map<U, Number>),
+    Amount(Amount<U>),
     String(String),
     DateTime(PrimitiveDateTime),
     Date(Date),
@@ -18,6 +20,11 @@ pub enum Value<U, T> {
     Object(Map<Key, Value<U, T>>),
     Custom(T),
 }
+
+#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Clone, Copy)]
+pub struct NoCustom;
+
+pub type SimpleValue = Value<NoUnit, NoCustom>;
 
 impl<U, T> Value<U, T> {
     pub fn is_null(&self) -> bool {
@@ -104,6 +111,13 @@ impl<U, T> Value<U, T> {
         }
     }
 
+    pub fn as_num(&self) -> Option<&Number> {
+        match self {
+            Value::Number(num) => Some(num),
+            _ => None,
+        }
+    }
+
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::Number(num) => num.as_i64(),
@@ -118,9 +132,16 @@ impl<U, T> Value<U, T> {
         }
     }
 
-    pub fn as_amount(&self) -> Option<&Map<U, Number>> {
+    pub fn as_amount(&self) -> Option<&Amount<U>> {
         match self {
-            Value::Amount(map) => Some(map),
+            Value::Amount(amount) => Some(amount),
+            _ => None,
+        }
+    }
+
+    pub fn as_amount_mut(&mut self) -> Option<&mut Amount<U>> {
+        match self {
+            Value::Amount(amount) => Some(amount),
             _ => None,
         }
     }

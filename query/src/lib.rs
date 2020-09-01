@@ -30,6 +30,13 @@ impl<'a> Query<'a> {
     pub fn key(key: &'a str) -> Self {
         Query::Key(Cow::Borrowed(key))
     }
+
+    pub fn is_from_last(&self) -> bool {
+        match self {
+            Query::Index { from_last, .. } => *from_last,
+            _ => false,
+        }
+    }
 }
 
 pub trait AccessNext {

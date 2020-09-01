@@ -2,8 +2,8 @@ use crate::format::*;
 use crate::key::Key;
 use crate::number::Number;
 use crate::unit::UnitDisplay;
-use crate::value::Value;
-use serde::ser::{self, SerializeMap, SerializeSeq, SerializeStructVariant};
+use crate::value::{NoCustom, Value};
+use serde::ser::{self, Error as SerError, SerializeMap, SerializeSeq, SerializeStructVariant};
 
 impl ser::Serialize for Key {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -54,7 +54,11 @@ where
             Value::Amount(obj) => match obj.len() {
                 1 => {
                     let (unit, value) = obj.into_iter().next().unwrap();
-                    serializer.serialize_str(&format!("{} {}", value, unit.unit_display()))
+                    serializer.serialize_str(&format!(
+                        "{} {}",
+                        value.as_num().unwrap(),
+                        unit.unit_display()
+                    ))
                 }
                 len => {
                     let mut st =
@@ -82,10 +86,20 @@ impl ser::Serialize for Number {
     }
 }
 
+impl ser::Serialize for NoCustom {
+    fn serialize<S>(&self, _: S) -> Result<S::Ok, S::Error>
+    where
+        S: ser::Serializer,
+    {
+        Err(S::Error::custom("no custom object present"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unit::{NoCustom, NoUnit, SimpleValue};
+    use crate::unit::NoUnit;
+    use crate::value::{NoCustom, SimpleValue};
     use nlsd::{to_string, Result};
     use serde::Serialize;
     use time::PrimitiveDateTime;

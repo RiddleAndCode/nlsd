@@ -10,6 +10,7 @@ default = []
 [dependencies]
 time = "0.2.16"
 serde = "1.0.114"
+object-query = { path = "../query" }
 
 [dev-dependencies]
 nlsd = { path = "../nlsd" }

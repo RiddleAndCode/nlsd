@@ -1,7 +1,8 @@
+use crate::amount::Amount;
 use crate::format::*;
 use crate::key::Key;
 use crate::number::Number;
-use crate::value::{Map, Value};
+use crate::value::{Map, NoCustom, Value};
 use serde::de;
 use serde::de::{Error as DeError, VariantAccess};
 use std::fmt;
@@ -108,9 +109,9 @@ where
                 let (num, unit) = v.split_at(index);
                 if let Ok(num) = num.parse() {
                     if let Ok(unit) = unit[1..].parse() {
-                        let mut map = Map::new();
-                        map.insert(unit, num);
-                        return Ok(Value::Amount(map));
+                        let mut amount = Amount::new();
+                        amount.insert(unit, num);
+                        return Ok(Value::Amount(amount));
                     }
                 }
                 Value::String(v.to_string())
@@ -145,7 +146,7 @@ where
         A: de::MapAccess<'de>,
     {
         if self.expecting_amount {
-            let mut out = Map::new();
+            let mut out = Amount::new();
             while let Some((key, value)) = map.next_entry::<String, _>()? {
                 out.insert(key.parse().map_err(A::Error::custom)?, value);
             }
@@ -292,10 +293,20 @@ impl<'de> de::Deserialize<'de> for Number {
     }
 }
 
+impl<'de> de::Deserialize<'de> for NoCustom {
+    fn deserialize<D>(_: D) -> Result<Self, D::Error>
+    where
+        D: de::Deserializer<'de>,
+    {
+        Err(D::Error::custom("no custom object present"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unit::{NoCustom, NoUnit, SimpleValue};
+    use crate::unit::NoUnit;
+    use crate::value::{NoCustom, SimpleValue};
     use nlsd::{from_str, Result};
     use serde::Deserialize;
 
