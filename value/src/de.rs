@@ -1,8 +1,7 @@
 use crate::format::*;
 use crate::key::Key;
-use crate::map::Map;
 use crate::number::Number;
-use crate::value::Value;
+use crate::value::{Map, Value};
 use serde::de;
 use serde::de::{Error as DeError, VariantAccess};
 use std::fmt;
@@ -296,7 +295,6 @@ impl<'de> de::Deserialize<'de> for Number {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::array::Array;
     use crate::unit::{NoCustom, NoUnit, SimpleValue};
     use nlsd::{from_str, Result};
     use serde::Deserialize;
@@ -476,7 +474,7 @@ mod tests {
             from_str::<SimpleValue>("the list where an item is true and another item is nothing")?
         );
         assert_eq!(
-            Value::Array(Array::new()),
+            Value::Array(Vec::new()),
             from_str::<SimpleValue>("the empty list")?
         );
         Ok(())

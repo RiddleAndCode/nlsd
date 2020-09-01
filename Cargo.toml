@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "nlsd",
-    "noql",
+    "nloq",
     "parser",
     "value"
 ]
