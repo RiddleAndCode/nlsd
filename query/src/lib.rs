@@ -1,7 +1,35 @@
+use std::borrow::Cow;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Query<'a> {
     Index { index: usize, from_last: bool },
-    Key(&'a str),
+    Key(Cow<'a, str>),
+}
+
+impl Query<'static> {
+    pub fn index(index: usize) -> Self {
+        Query::Index {
+            index,
+            from_last: false,
+        }
+    }
+
+    pub fn index_from_last(index: usize) -> Self {
+        Query::Index {
+            index,
+            from_last: true,
+        }
+    }
+
+    pub fn key_owned(key: String) -> Self {
+        Query::Key(Cow::Owned(key))
+    }
+}
+
+impl<'a> Query<'a> {
+    pub fn key(key: &'a str) -> Self {
+        Query::Key(Cow::Borrowed(key))
+    }
 }
 
 pub trait AccessNext {
@@ -28,11 +56,94 @@ pub trait AccessMut: AccessNextMut {
     }
 }
 
+impl From<usize> for Query<'static> {
+    fn from(index: usize) -> Self {
+        Self::Index {
+            index,
+            from_last: false,
+        }
+    }
+}
+
+impl From<isize> for Query<'static> {
+    fn from(index: isize) -> Self {
+        if index.is_negative() {
+            Self::Index {
+                index: index.abs() as usize - 1,
+                from_last: true,
+            }
+        } else {
+            Self::Index {
+                index: index as usize,
+                from_last: false,
+            }
+        }
+    }
+}
+
+impl From<i8> for Query<'static> {
+    fn from(index: i8) -> Self {
+        (index as isize).into()
+    }
+}
+
+impl From<i16> for Query<'static> {
+    fn from(index: i16) -> Self {
+        (index as isize).into()
+    }
+}
+
+impl From<i32> for Query<'static> {
+    fn from(index: i32) -> Self {
+        (index as isize).into()
+    }
+}
+
+impl From<i64> for Query<'static> {
+    fn from(index: i64) -> Self {
+        (index as isize).into()
+    }
+}
+
+impl From<u8> for Query<'static> {
+    fn from(index: u8) -> Self {
+        (index as usize).into()
+    }
+}
+
+impl From<u16> for Query<'static> {
+    fn from(index: u16) -> Self {
+        (index as usize).into()
+    }
+}
+
+impl From<u32> for Query<'static> {
+    fn from(index: u32) -> Self {
+        (index as usize).into()
+    }
+}
+
+impl From<u64> for Query<'static> {
+    fn from(index: u64) -> Self {
+        (index as usize).into()
+    }
+}
+
+impl From<String> for Query<'static> {
+    fn from(key: String) -> Self {
+        Self::Key(Cow::Owned(key))
+    }
+}
+
+impl<'a> From<&'a str> for Query<'a> {
+    fn from(key: &'a str) -> Self {
+        Self::Key(Cow::Borrowed(key))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::de::Deserializer;
-    use crate::query::Query;
     use serde_json::{json, Value};
 
     impl AccessNext for Value {
@@ -45,7 +156,7 @@ mod tests {
                 Value::Array(array) => match query {
                     Query::Index { index, from_last } => {
                         if *from_last {
-                            array.get(array.len() - index)
+                            array.get(array.len() - 1 - index)
                         } else {
                             array.get(*index)
                         }
@@ -72,7 +183,7 @@ mod tests {
                 Value::Array(array) => match query {
                     Query::Index { index, from_last } => {
                         if *from_last {
-                            let index = array.len() - index;
+                            let index = array.len() - 1 - index;
                             array.get_mut(index)
                         } else {
                             array.get_mut(*index)
@@ -93,44 +204,44 @@ mod tests {
     #[test]
     fn access_json_object() {
         let mut value = json!({"a": 1, "b": 2});
-        let query = Deserializer::from_str("the a").query();
+        let query = vec!["a".into()];
         assert_eq!(value.access(&query), Some(&json!(1)));
         assert_eq!(value.access_mut(&query), Some(&mut json!(1)));
-        let query = Deserializer::from_str("the b").query();
+        let query = vec!["b".into()];
         assert_eq!(value.access(&query), Some(&json!(2)));
-        let query = Deserializer::from_str("the c").query();
+        let query = vec!["c".into()];
         assert_eq!(value.access(&query), None);
     }
 
     #[test]
     fn access_json_array() {
         let mut value = json!([1, 2, 3]);
-        let query = Deserializer::from_str("the first item").query();
+        let query = vec![0.into()];
         assert_eq!(value.access(&query), Some(&json!(1)));
         assert_eq!(value.access_mut(&query), Some(&mut json!(1)));
-        let query = Deserializer::from_str("the second item").query();
+        let query = vec![1.into()];
         assert_eq!(value.access(&query), Some(&json!(2)));
-        let query = Deserializer::from_str("the last item").query();
+        let query = vec![(-1).into()];
         assert_eq!(value.access(&query), Some(&json!(3)));
-        let query = Deserializer::from_str("the second to last item").query();
+        let query = vec![(-2).into()];
         assert_eq!(value.access(&query), Some(&json!(2)));
-        let query = Deserializer::from_str("the fourth item").query();
+        let query = vec![4.into()];
         assert_eq!(value.access(&query), None);
     }
 
     #[test]
     fn access_json_nested() {
         let mut value = json!([{"a": 1}, [2, 3], {"c": 4}]);
-        let query = Deserializer::from_str("the a of the first item").query();
+        let query = vec![0.into(), "a".into()];
         assert_eq!(value.access(&query), Some(&json!(1)));
         assert_eq!(value.access_mut(&query), Some(&mut json!(1)));
-        let query = Deserializer::from_str("the c of the last item").query();
+        let query = vec![(-1).into(), "c".into()];
         assert_eq!(value.access(&query), Some(&json!(4)));
-        let query = Deserializer::from_str("the last item of the second item").query();
+        let query = vec![1.into(), (-1).into()];
         assert_eq!(value.access(&query), Some(&json!(3)));
-        let query = Deserializer::from_str("the b of the first item").query();
+        let query = vec![0.into(), "b".into()];
         assert_eq!(value.access(&query), None);
-        let query = Deserializer::from_str("the third item of the second item").query();
+        let query = vec![1.into(), 2.into()];
         assert_eq!(value.access(&query), None);
     }
 }

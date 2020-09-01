@@ -3,5 +3,6 @@ members = [
     "nlsd",
     "nloq",
     "parser",
-    "value"
+    "query",
+    "value",
 ]
