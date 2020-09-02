@@ -1,7 +1,6 @@
 use crate::amount::Amount;
 use crate::key::Key;
 use crate::number::Number;
-use crate::unit::NoUnit;
 use time::{Date, PrimitiveDateTime, Time};
 
 pub type Map<K, V> = std::collections::BTreeMap<K, V>;
@@ -20,11 +19,6 @@ pub enum Value<U, T> {
     Object(Map<Key, Value<U, T>>),
     Custom(T),
 }
-
-#[derive(Eq, PartialEq, Ord, PartialOrd, Debug, Clone, Copy)]
-pub struct NoCustom;
-
-pub type SimpleValue = Value<NoUnit, NoCustom>;
 
 impl<U, T> Value<U, T> {
     pub fn is_null(&self) -> bool {

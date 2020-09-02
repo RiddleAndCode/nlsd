@@ -1,8 +1,9 @@
+use crate::amount::UnitDisplay;
 use crate::format::*;
 use crate::key::Key;
 use crate::number::Number;
-use crate::unit::UnitDisplay;
-use crate::value::{NoCustom, Value};
+use crate::simple::NoCustom;
+use crate::value::Value;
 use serde::ser::{self, Error as SerError, SerializeMap, SerializeSeq, SerializeStructVariant};
 
 impl ser::Serialize for Key {
@@ -98,8 +99,7 @@ impl ser::Serialize for NoCustom {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unit::NoUnit;
-    use crate::value::{NoCustom, SimpleValue};
+    use crate::simple::{NoCustom, NoUnit, SimpleValue};
     use nlsd::{to_string, Result};
     use serde::Serialize;
     use time::PrimitiveDateTime;

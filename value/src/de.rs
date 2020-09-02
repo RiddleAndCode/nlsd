@@ -2,7 +2,8 @@ use crate::amount::Amount;
 use crate::format::*;
 use crate::key::Key;
 use crate::number::Number;
-use crate::value::{Map, NoCustom, Value};
+use crate::simple::NoCustom;
+use crate::value::{Map, Value};
 use serde::de;
 use serde::de::{Error as DeError, VariantAccess};
 use std::fmt;
@@ -305,8 +306,7 @@ impl<'de> de::Deserialize<'de> for NoCustom {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unit::NoUnit;
-    use crate::value::{NoCustom, SimpleValue};
+    use crate::simple::{NoCustom, NoUnit, SimpleValue};
     use nlsd::{from_str, Result};
     use serde::Deserialize;
 

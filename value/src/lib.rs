@@ -5,10 +5,11 @@ mod format;
 mod key;
 mod number;
 mod ser;
-mod unit;
+mod simple;
 mod value;
 
+pub use amount::{Amount, UnitDisplay};
 pub use key::Key;
 pub use number::Number;
-pub use unit::{NoUnit, UnitDisplay};
-pub use value::{NoCustom, SimpleValue, Value};
+pub use simple::{NoCustom, NoUnit, SimpleValue};
+pub use value::Value;

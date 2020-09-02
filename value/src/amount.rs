@@ -1,10 +1,15 @@
 use crate::number::Number;
-use crate::value::{Map, SimpleValue, Value};
+use crate::simple::SimpleValue;
+use crate::value::{Map, Value};
 use std::{cmp, collections::btree_map, fmt, iter, ops};
 
 #[derive(Eq, PartialEq)]
 pub struct Amount<U> {
     inner: Map<U, SimpleValue>,
+}
+
+pub trait UnitDisplay {
+    fn unit_display(&self) -> &'static str;
 }
 
 impl<U> Amount<U>
@@ -21,6 +26,10 @@ where
 
     pub fn remove(&mut self, key: &U) -> Option<SimpleValue> {
         self.inner.remove(key)
+    }
+
+    pub fn get_mut(&mut self, key: &U) -> Option<&mut SimpleValue> {
+        self.inner.get_mut(key)
     }
 }
 
