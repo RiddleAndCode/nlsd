@@ -108,26 +108,32 @@ impl<'de> Deserializer<'de> {
         })
     }
 
+    /// Get remaining string not deserialized yet
+    #[inline]
+    pub fn rest(&self) -> &'de str {
+        &self.src[self.index..]
+    }
+
     fn peek_next(&self) -> Result<Parsed<'de>> {
         let (_, parsed, _) =
-            parse_next(self.src()).map_err(|err| self.inc_err_index(err.into()))?;
+            parse_next(self.rest()).map_err(|err| self.inc_err_index(err.into()))?;
         Ok(parsed)
     }
 
     fn parse_next(&mut self) -> Result<Parsed<'de>> {
-        self.inc_parse_result(parse_next(self.src()))
+        self.inc_parse_result(parse_next(self.rest()))
     }
 
     fn parse_token(&mut self) -> Result<&'de str> {
-        self.inc_parse_result(parse_token(self.src()))
+        self.inc_parse_result(parse_token(self.rest()))
     }
 
     fn parse_string(&mut self) -> Result<&'de str> {
-        self.inc_parse_result(parse_string(self.src()))
+        self.inc_parse_result(parse_string(self.rest()))
     }
 
     fn parse_number(&mut self) -> Result<Number> {
-        self.inc_parse_result(parse_number(self.src()))
+        self.inc_parse_result(parse_number(self.rest()))
     }
 
     fn parse_and_expect_token(&mut self, token: &'static str) -> Result<()> {
@@ -140,7 +146,7 @@ impl<'de> Deserializer<'de> {
 
     fn inc_parse_result<T>(&mut self, result: ParseResult<T>) -> Result<T> {
         let (_, parsed, rest) = result.map_err(|err| self.inc_err_index(err.into()))?;
-        self.index += self.src().len() - rest.len();
+        self.index += self.rest().len() - rest.len();
         Ok(parsed)
     }
 
@@ -158,11 +164,6 @@ impl<'de> Deserializer<'de> {
 
     fn rollback(&mut self, index: usize) {
         self.index = index
-    }
-
-    #[inline]
-    fn src(&self) -> &'de str {
-        &self.src[self.index..]
     }
 }
 
