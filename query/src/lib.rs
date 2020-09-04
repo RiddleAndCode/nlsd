@@ -37,6 +37,27 @@ impl<'a> Query<'a> {
             _ => false,
         }
     }
+
+    pub fn is_key(&self) -> bool {
+        match self {
+            Query::Key(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_index(&self) -> bool {
+        match self {
+            Query::Index { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn as_key(&self) -> Option<&str> {
+        match self {
+            Query::Key(s) => Some(s.as_ref()),
+            _ => None,
+        }
+    }
 }
 
 pub trait AccessNext {
