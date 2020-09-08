@@ -3,6 +3,13 @@ name = "nl-parser"
 version = "0.1.0"
 authors = ["Julian Popescu <jpopesculian@gmail.com>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/riddleandcode/nlsd"
+documentation = "https://docs.rs/nl-parser/"
+repository = "https://github.com/riddleandcode/nlsd"
+description = "Natural Language Parser"
+keywords = ["natural-language", "parsing"]
+categories = ["parsing", ]
 
 [features]
 default = ["std"]

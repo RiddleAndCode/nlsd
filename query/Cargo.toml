@@ -3,6 +3,14 @@ name = "object-query"
 version = "0.1.0"
 authors = ["Julian Popescu <jpopesculian@gmail.com>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/riddleandcode/nlsd"
+documentation = "https://docs.rs/object-query/"
+repository = "https://github.com/riddleandcode/nlsd"
+description = "Abstracted object queries"
+keywords = ["object", "query"]
+categories = []
 
 [features]
 default = ["json"]

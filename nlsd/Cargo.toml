@@ -3,6 +3,14 @@ name = "nlsd"
 version = "0.1.0"
 authors = ["Julian Popescu <jpopesculian@gmail.com>"]
 edition = "2018"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+homepage = "https://github.com/riddleandcode/nlsd"
+documentation = "https://docs.rs/nlsd/"
+repository = "https://github.com/riddleandcode/nlsd"
+description = "Natural Language Structured Documents"
+keywords = ["natural-language", "serde", "parsing"]
+categories = ["parsing"]
 
 [features]
 default = []
