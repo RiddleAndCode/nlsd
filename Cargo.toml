@@ -4,5 +4,4 @@ members = [
     "nloq",
     "parser",
     "query",
-    "value",
 ]
