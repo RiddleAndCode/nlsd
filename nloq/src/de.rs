@@ -42,6 +42,7 @@ impl<'de> Deserializer<'de> {
         self.index = index
     }
 
+    /// Returns the remaining unprocessed string slice
     #[inline]
     pub fn rest(&self) -> &'de str {
         &self.src[self.index..]

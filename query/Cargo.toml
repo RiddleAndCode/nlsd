@@ -5,7 +5,8 @@ authors = ["Julian Popescu <jpopesculian@gmail.com>"]
 edition = "2018"
 
 [features]
-default = []
+default = ["json"]
+json = ["serde_json"]
 
-[dev-dependencies]
-serde_json = "1"
+[dependencies]
+serde_json = { version = "1.0", optional = true }

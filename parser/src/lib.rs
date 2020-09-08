@@ -2,29 +2,42 @@
 
 use core::fmt;
 
+/// Represents either a float or an integer
 #[derive(Debug, PartialEq)]
 pub enum Number {
     Float(f64),
     Integer(i64),
 }
 
+/// Result of parsing a string
 #[derive(Debug, PartialEq, Eq)]
 pub enum Parsed<'a> {
+    /// A one word string Token
     Token(&'a str),
+    /// A multi-word string Token
     Str(&'a str),
+    /// A number-like Token
     Number(Number),
 }
 
+/// An Error which may occur during parsing
 #[derive(Debug)]
 pub enum ParseError {
+    /// The end of the string occured during parsing the token
     UnexpectedEof,
+    /// No valid String was found
     InvalidString(usize),
+    /// No valid Number was found
     InvalidNumber(usize),
+    /// No whitespace was found after the end of the string before the next token
     ExpectedWhitespace(usize),
 }
 
+/// A helper for the result of parsing. Holds a tuple of the index of the found result, the type
+/// parsed as well as the remaining unparsed string
 pub type ParseResult<'a, T> = Result<(usize, T, &'a str), ParseError>;
 
+/// Attempt to parse a `Parsed::Token`
 pub fn parse_token(src: &str) -> ParseResult<&str> {
     let mut t_start = None;
     let mut t_end = None;
@@ -61,6 +74,7 @@ pub fn parse_token(src: &str) -> ParseResult<&str> {
     }
 }
 
+/// Attempt to parse a delimited string
 fn parse_delimited(
     src: &str,
     start_char: char,
@@ -121,11 +135,13 @@ fn parse_delimited(
     }
 }
 
+/// Attempt to parse a `Parsed::String`
 #[inline]
 pub fn parse_string(src: &str) -> ParseResult<&str> {
     parse_delimited(src, '`', '`', '\\')
 }
 
+/// Attempt to parse a `Parsed::Number`
 pub fn parse_number(src: &str) -> ParseResult<Number> {
     let (index, token, rest) = parse_token(src)?;
     if let Ok(num) = token.parse() {
@@ -137,6 +153,7 @@ pub fn parse_number(src: &str) -> ParseResult<Number> {
     }
 }
 
+/// Attempt to parse a `Parsed`. Precedence is string, then number and then token
 pub fn parse_next(src: &str) -> ParseResult<Parsed> {
     if let Ok((index, string, rest)) = parse_string(src) {
         Ok((index, Parsed::Str(string), rest))
