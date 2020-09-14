@@ -2,6 +2,7 @@
 //! `AccessNext` and `AccessNextMut`. The `json` feature will implement this for the
 //! `serde_json::Value` type
 
+use core::iter;
 use std::borrow::Cow;
 
 /// Either a key or an index query
@@ -11,6 +12,17 @@ pub enum Query<'a> {
     Index { index: usize, from_last: bool },
     /// The key query. Represents string key to query by
     Key(Cow<'a, str>),
+}
+
+/// The result of doing a set operation
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SetResult<T> {
+    /// Could not set term
+    NotSet,
+    /// Term was set and there was no value there before
+    Set,
+    /// Term replaced the value
+    Replaced(T),
 }
 
 impl Query<'static> {
@@ -116,6 +128,72 @@ pub trait AccessMut: AccessNextMut {
         queries.into_iter().fold(Some(self), |res, query| {
             res.and_then(|res| res.access_next_mut(query))
         })
+    }
+}
+
+/// Describe how to set a value from a query
+pub trait QuerySetItem: Sized {
+    fn query_set_item<'a>(&mut self, query: &Query<'a>, val: Self) -> SetResult<Self>;
+}
+
+struct SkipLastIter<I, T>
+where
+    I: Iterator<Item = T>,
+{
+    iter: iter::Peekable<I>,
+    last: Option<T>,
+}
+
+impl<I, T> SkipLastIter<I, T>
+where
+    I: Iterator<Item = T>,
+{
+    fn new(iter: I) -> Self {
+        Self {
+            iter: iter.peekable(),
+            last: None,
+        }
+    }
+}
+
+impl<I, T> Iterator for SkipLastIter<I, T>
+where
+    I: Iterator<Item = T>,
+{
+    type Item = T;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.iter.next();
+        if next.is_none() {
+            return None;
+        }
+        if self.iter.peek().is_none() {
+            self.last = next;
+            return None;
+        }
+        next
+    }
+}
+
+/// An easily implementable trait to set a value form a list of queries on a mutable item
+pub trait QuerySet: QuerySetItem + AccessMut {
+    fn query_set<'a, I: IntoIterator<Item = &'a Query<'a>>>(
+        &mut self,
+        queries: I,
+        val: Self,
+    ) -> SetResult<Self> {
+        let mut iter = SkipLastIter::new(queries.into_iter());
+        let item = self.access_mut(&mut iter);
+        if let Some(item) = item {
+            if let Some(last) = iter.last {
+                item.query_set_item(last, val)
+            } else {
+                // implies empty query
+                SetResult::NotSet
+            }
+        } else {
+            // implies query not found
+            SetResult::NotSet
+        }
     }
 }
 
@@ -244,6 +322,9 @@ impl AccessNextMut for serde_json::Value {
             serde_json::Value::Array(array) => match query {
                 Query::Index { index, from_last } => {
                     if *from_last {
+                        if *index >= array.len() {
+                            return None;
+                        }
                         let index = array.len() - 1 - index;
                         array.get_mut(index)
                     } else {
@@ -262,6 +343,69 @@ impl AccessNextMut for serde_json::Value {
 
 #[cfg(feature = "json")]
 impl AccessMut for serde_json::Value {}
+
+#[cfg(feature = "json")]
+impl QuerySetItem for serde_json::Value {
+    fn query_set_item<'a>(&mut self, query: &Query<'a>, val: Self) -> SetResult<Self> {
+        match self {
+            serde_json::Value::Null => SetResult::NotSet,
+            serde_json::Value::Bool(_) => SetResult::NotSet,
+            serde_json::Value::Number(_) => SetResult::NotSet,
+            serde_json::Value::String(_) => SetResult::NotSet,
+            serde_json::Value::Array(array) => match query {
+                Query::Index { index, from_last } => {
+                    if *from_last {
+                        if *index >= array.len() {
+                            return SetResult::NotSet;
+                        }
+                        let index = array.len() - 1 - index;
+                        array.push(val);
+                        SetResult::Replaced(array.swap_remove(index))
+                    } else {
+                        if *index == array.len() {
+                            array.push(val);
+                            SetResult::Set
+                        } else if *index > array.len() {
+                            array.resize(index + 1, serde_json::Value::Null);
+                            array[*index] = val;
+                            SetResult::Set
+                        } else {
+                            array.push(val);
+                            SetResult::Replaced(array.swap_remove(*index))
+                        }
+                    }
+                }
+                Query::Key(_) => SetResult::NotSet,
+            },
+            serde_json::Value::Object(map) => match query {
+                Query::Index { .. } => SetResult::NotSet,
+                Query::Key(key) => {
+                    if let Some(res) = map.insert(key.to_string(), val) {
+                        SetResult::Replaced(res)
+                    } else {
+                        SetResult::Set
+                    }
+                }
+            },
+        }
+    }
+}
+
+/// Convenience macro for query arguments
+///
+/// ```
+/// # use object_query::{query, Query};
+/// assert_eq!(query!["a", 1, "b"], &[Query::key("a"), Query::index(1), Query::key("b")])
+/// ```
+#[macro_export]
+macro_rules! query {
+    ($($item:expr),*) => {
+        &[$($crate::Query::from(($item))),*]
+    }
+}
+
+#[cfg(feature = "json")]
+impl QuerySet for serde_json::Value {}
 
 #[cfg(test)]
 mod tests {
@@ -314,5 +458,82 @@ mod tests {
         assert_eq!(value.access(&query), None);
         let query = vec![1.into(), 2.into()];
         assert_eq!(value.access(&query), None);
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn query_set_json_array() {
+        let mut value = json!([1, 2, 3]);
+
+        let query = vec![0.into()];
+        assert_eq!(
+            value.query_set(&query, json!(4)),
+            SetResult::Replaced(json!(1))
+        );
+        assert_eq!(value, json!([4, 2, 3]));
+
+        let query = vec![3.into()];
+        assert_eq!(value.query_set(&query, json!(5)), SetResult::Set);
+        assert_eq!(value, json!([4, 2, 3, 5]));
+
+        let query = vec![5.into()];
+        assert_eq!(value.query_set(&query, json!(6)), SetResult::Set);
+        assert_eq!(value, json!([4, 2, 3, 5, null, 6]));
+
+        let query = vec![(-2).into()];
+        assert_eq!(
+            value.query_set(&query, json!(7)),
+            SetResult::Replaced(json!(null))
+        );
+        assert_eq!(value, json!([4, 2, 3, 5, 7, 6]));
+
+        let query = vec![(-7).into()];
+        assert_eq!(value.query_set(&query, json!(9)), SetResult::NotSet);
+        assert_eq!(value, json!([4, 2, 3, 5, 7, 6]));
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn query_set_json_object() {
+        let mut value = json!({"a": 1, "b": 2});
+
+        assert_eq!(
+            value.query_set(query!["a"], json!(3)),
+            SetResult::Replaced(json!(1))
+        );
+        assert_eq!(value, json!({"a": 3, "b": 2}));
+
+        assert_eq!(value.query_set(query!["c"], json!(4)), SetResult::Set);
+        assert_eq!(value, json!({"a": 3, "b": 2, "c": 4}));
+    }
+
+    #[cfg(feature = "json")]
+    #[test]
+    fn query_set_json_nested() {
+        let mut value = json!([{"a": 1}, [2, 3], {"c": 4}]);
+
+        assert_eq!(
+            value.query_set(query![0, "a"], json!(2)),
+            SetResult::Replaced(json!(1))
+        );
+        assert_eq!(value, json!([{"a": 2}, [2, 3], {"c": 4}]));
+
+        assert_eq!(value.query_set(query![2, "b"], json!(5)), SetResult::Set);
+        assert_eq!(value, json!([{"a": 2}, [2, 3], {"c": 4, "b": 5}]));
+
+        assert_eq!(value.query_set(query![1, 2], json!(6)), SetResult::Set);
+        assert_eq!(value, json!([{"a": 2}, [2, 3, 6], {"c": 4, "b": 5}]));
+
+        assert_eq!(
+            value.query_set(query![-2, -3], json!(7)),
+            SetResult::Replaced(json!(2))
+        );
+        assert_eq!(value, json!([{"a": 2}, [7, 3, 6], {"c": 4, "b": 5}]));
+
+        assert_eq!(
+            value.query_set(query![3, "key"], json!(8)),
+            SetResult::NotSet
+        );
+        assert_eq!(value, json!([{"a": 2}, [7, 3, 6], {"c": 4, "b": 5}]));
     }
 }
