@@ -293,6 +293,9 @@ impl AccessNext for serde_json::Value {
             serde_json::Value::Array(array) => match query {
                 Query::Index { index, from_last } => {
                     if *from_last {
+                        if *index >= array.len() {
+                            return None;
+                        }
                         array.get(array.len() - 1 - index)
                     } else {
                         array.get(*index)
