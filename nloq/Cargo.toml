@@ -13,8 +13,9 @@ keywords = ["natural-language", "parsing", "query"]
 categories = ["parsing", ]
 
 [features]
-default = []
+default = ["std"]
+std = ["nl-parser/std", "object-query/std"]
 
 [dependencies]
-nl-parser = { version = "0.1.0", path = "../parser" }
-object-query = { version = "0.1.0", path = "../query" }
+nl-parser = { version = "0.1.0", path = "../parser", default-features = false }
+object-query = { version = "0.1.0", path = "../query", default-features = false }
