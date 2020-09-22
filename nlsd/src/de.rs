@@ -1,9 +1,14 @@
 use super::error::{Error, Result};
+use alloc::borrow::Cow;
+use alloc::boxed::Box;
+use alloc::string::{String, ToString};
 use nl_parser::{
     parse_next, parse_number, parse_string, parse_token, Number, ParseError, ParseResult, Parsed,
 };
 use serde::de;
-use std::borrow::Cow;
+
+#[cfg(not(feature = "std"))]
+use num_traits::float::FloatCore;
 
 const TRUE: &str = "true";
 const FALSE: &str = "false";
@@ -1051,9 +1056,10 @@ impl<'a, 'de> de::VariantAccess<'de> for UnitVariantAccess<'a, 'de> {
 mod tests {
     use super::*;
     use crate::helpers::*;
+    use alloc::collections::BTreeMap;
+    use alloc::vec::Vec;
     use serde::Deserialize;
     use serde_json::{json, Value};
-    use std::collections::HashMap;
 
     #[test]
     fn deserialize_bool() -> Result<()> {
@@ -1195,30 +1201,30 @@ mod tests {
         assert_eq!(
             vec![("name", "rob")]
                 .into_iter()
-                .collect::<HashMap<&str, &str>>(),
-            from_str::<HashMap<&str, &str>>("the object where the `name` is `rob`")?
+                .collect::<BTreeMap<&str, &str>>(),
+            from_str::<BTreeMap<&str, &str>>("the object where the `name` is `rob`")?
         );
         assert_eq!(
             vec![("name", "rob"), ("id", "1")]
                 .into_iter()
-                .collect::<HashMap<&str, &str>>(),
-            from_str::<HashMap<&str, &str>>(
+                .collect::<BTreeMap<&str, &str>>(),
+            from_str::<BTreeMap<&str, &str>>(
                 "the object where the `name` is `rob` and the `id` is `1`"
             )?
         );
         assert_eq!(
             vec![("red", 100), ("green", 200), ("blue", 50)]
                 .into_iter()
-                .collect::<HashMap<&str, u8>>(),
-            from_str::<HashMap<&str, u8>>(
+                .collect::<BTreeMap<&str, u8>>(),
+            from_str::<BTreeMap<&str, u8>>(
                 "the object where `red` is 100 and `green` is 200 and `blue` is 50"
             )?
         );
         assert_eq!(
             vec![(false, 0), (true, 1),]
                 .into_iter()
-                .collect::<HashMap<bool, u8>>(),
-            from_str::<HashMap<bool, u8>>("the object where true is 1 and false is 0")?
+                .collect::<BTreeMap<bool, u8>>(),
+            from_str::<BTreeMap<bool, u8>>("the object where true is 1 and false is 0")?
         );
         assert_eq!(
             json!({"red": 100, "green": 200, "blue": 50}),

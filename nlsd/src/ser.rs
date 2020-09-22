@@ -1,6 +1,8 @@
 use crate::error::{Error, Result};
+use alloc::fmt::Write;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use serde::ser;
-use std::io::Write;
 
 /// A structure that serializes Rust values into a writer `W`
 pub struct Serializer<W> {
@@ -14,7 +16,7 @@ pub struct Compound<'a, W> {
     index: usize,
     is_leaf: bool,
     is_new_scope: bool,
-    buffer: Vec<u8>,
+    buffer: String,
 }
 
 impl<W> Serializer<W> {
@@ -117,7 +119,7 @@ impl<'a, W> Compound<'a, W> {
             index: 0,
             is_leaf: true,
             is_new_scope: false,
-            buffer: Vec::default(),
+            buffer: String::default(),
         }
     }
 }
@@ -180,7 +182,7 @@ where
     }
 
     fn serialize_str(self, v: &str) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_all(format_str(v).as_ref())?;
+        self.writer.write_str(format_str(v).as_ref())?;
         Ok(())
     }
 
@@ -194,8 +196,8 @@ where
 
     fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
         match v {
-            true => self.writer.write_all(b"true")?,
-            false => self.writer.write_all(b"false")?,
+            true => self.writer.write_str("true")?,
+            false => self.writer.write_str("false")?,
         };
         Ok(())
     }
@@ -205,7 +207,7 @@ where
     }
 
     fn serialize_none(self) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_all(b"nothing")?;
+        self.writer.write_str("nothing")?;
         Ok(())
     }
 
@@ -217,7 +219,7 @@ where
     }
 
     fn serialize_unit(self) -> Result<Self::Ok, Self::Error> {
-        self.writer.write_all(b"empty")?;
+        self.writer.write_str("empty")?;
         Ok(())
     }
 
@@ -299,9 +301,9 @@ where
     where
         T: ser::Serialize,
     {
-        self.writer.write_all(b"the ")?;
+        self.writer.write_str("the ")?;
         self.serialize_str(&humanize(variant))?;
-        self.writer.write_all(b" which is ")?;
+        self.writer.write_str(" which is ")?;
         value.serialize(self)
     }
 }
@@ -332,11 +334,11 @@ where
 
     fn an_item(&mut self) -> Result<()> {
         if self.index == 0 {
-            self.buffer.write_all(b" where an ")?;
+            self.buffer.write_str(" where an ")?;
         } else {
-            self.buffer.write_all(b" and another ")?;
+            self.buffer.write_str(" and another ")?;
         }
-        self.buffer.write_all(b"item ")?;
+        self.buffer.write_str("item ")?;
         self.index += 1;
         self.serializer.context.push(format!("item {}", self.index));
         Ok(())
@@ -347,34 +349,30 @@ where
         T: ser::Serialize,
     {
         if self.index == 0 {
-            self.buffer.write_all(b" where ")?;
+            self.buffer.write_str(" where ")?;
         } else {
-            self.buffer.write_all(b" and ")?;
+            self.buffer.write_str(" and ")?;
         }
 
-        let mut serializer = Serializer::with_context(Vec::new(), Vec::new());
+        let mut serializer = Serializer::with_context(String::new(), Vec::new());
         name.serialize(&mut serializer)?;
         // TODO test if nested struct actually gets caught
         if serializer.context.len() > 1 {
             return Err(Error::ExpectedPrimitiveMapKey);
         }
-        let name = unsafe {
-            // We do not emit invalid UTF-8.
-            core::str::from_utf8_unchecked(&serializer.writer).to_string()
-        };
-        self.buffer.write_all(&mut serializer.writer)?;
-        self.buffer.push(b' ');
+        self.buffer.write_str(&mut serializer.writer)?;
+        self.buffer.write_char(' ')?;
 
         self.index += 1;
-        self.serializer.context.push(escape_str(&name));
+        self.serializer.context.push(escape_str(&serializer.writer));
         Ok(())
     }
 
     fn the_struct_key(&mut self, name: &'static str) -> Result<()> {
         if self.index == 0 {
-            self.buffer.write_all(b" where ")?;
+            self.buffer.write_str(" where ")?;
         } else {
-            self.buffer.write_all(b" and ")?;
+            self.buffer.write_str(" and ")?;
         }
 
         let name = humanize(name);
@@ -405,7 +403,7 @@ where
     }
 
     fn is(&mut self) -> Result<()> {
-        self.buffer.write_all(b"is ")?;
+        self.buffer.write_str("is ")?;
         Ok(())
     }
 
@@ -433,11 +431,11 @@ where
         if self.index > 0 {
             self.serializer
                 .writer
-                .write_all(format!("the {}", name).as_ref())?;
+                .write_str(format!("the {}", name).as_ref())?;
         } else {
             self.serializer
                 .writer
-                .write_all(format!("the empty {}", name).as_ref())?;
+                .write_str(format!("the empty {}", name).as_ref())?;
         }
         Ok(())
     }
@@ -451,11 +449,11 @@ where
         if self.index > 0 {
             self.serializer
                 .writer
-                .write_all(format!("the {}", name).as_ref())?;
+                .write_str(format!("the {}", name).as_ref())?;
         } else {
             self.serializer
                 .writer
-                .write_all(format!("the empty {}", name).as_ref())?;
+                .write_str(format!("the empty {}", name).as_ref())?;
         }
         Ok(())
     }
@@ -467,7 +465,7 @@ where
                 format_str(&self.serializer.current_scope())
             ))?;
         }
-        self.serializer.writer.write_all(&self.buffer)?;
+        self.serializer.writer.write_str(&self.buffer)?;
         Ok(())
     }
 }
@@ -638,8 +636,8 @@ where
 pub mod tests {
     use super::*;
     use crate::helpers::to_string;
+    use alloc::collections::BTreeMap;
     use serde::Serialize;
-    use std::collections::BTreeMap;
 
     #[test]
     fn humanize_string() {

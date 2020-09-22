@@ -1,11 +1,12 @@
+use alloc::fmt;
+use alloc::string::{String, ToString};
 use serde::{de, ser};
-use std::{fmt, io};
 
 /// Error that may occur during serializing or deserializing
 #[derive(Debug)]
 pub enum Error {
     Custom(String),
-    Io(io::Error),
+    Fmt(fmt::Error),
     InvalidUtf8,
     Parse(nl_parser::ParseError),
     ExpectedBool,
@@ -27,11 +28,11 @@ pub enum Error {
 }
 
 /// Convenience wrapper for a `Result<T, Error>`
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = core::result::Result<T, E>;
 
-impl From<io::Error> for Error {
-    fn from(err: io::Error) -> Self {
-        Self::Io(err)
+impl From<fmt::Error> for Error {
+    fn from(err: fmt::Error) -> Self {
+        Self::Fmt(err)
     }
 }
 
@@ -69,7 +70,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Custom(msg) => f.write_fmt(format_args!("custom: {}", msg)),
-            Self::Io(err) => f.write_fmt(format_args!("io: {}", err)),
+            Self::Fmt(err) => f.write_fmt(format_args!("io: {}", err)),
             Self::InvalidUtf8 => f.write_str("strings must be valid utf8"),
             Self::Parse(err) => f.write_fmt(format_args!("parse error: {}", err)),
             Self::ExpectedBool => f.write_str("expected boolean"),
@@ -96,4 +97,8 @@ impl fmt::Display for Error {
     }
 }
 
+#[cfg(feature = "std")]
 impl std::error::Error for Error {}
+
+#[cfg(not(feature = "std"))]
+impl ser::StdError for Error {}
