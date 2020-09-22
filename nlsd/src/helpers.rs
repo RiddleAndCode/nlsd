@@ -1,8 +1,10 @@
 use crate::de::Deserializer;
 use crate::error::Result;
 use crate::ser::Serializer;
+use alloc::fmt::Write;
+use alloc::string::String;
+use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
 
 /// deserialize an instance of `T` from NLSD text
 pub fn from_str<'de, T>(s: &'de str) -> Result<T>
@@ -26,12 +28,9 @@ pub fn to_string<T: ?Sized>(value: &T) -> Result<String>
 where
     T: Serialize,
 {
-    let vec = to_vec(value)?;
-    let string = unsafe {
-        // We do not emit invalid UTF-8.
-        String::from_utf8_unchecked(vec)
-    };
-    Ok(string)
+    let mut writer = String::new();
+    to_writer(&mut writer, value)?;
+    Ok(writer)
 }
 
 /// serialize an instance of `T` to bytes
@@ -39,9 +38,7 @@ pub fn to_vec<T: ?Sized>(value: &T) -> Result<Vec<u8>>
 where
     T: Serialize,
 {
-    let mut writer = Vec::with_capacity(128);
-    to_writer(&mut writer, value)?;
-    Ok(writer)
+    Ok(to_string(value)?.into_bytes())
 }
 
 /// serialize an instance of `T` to a writer

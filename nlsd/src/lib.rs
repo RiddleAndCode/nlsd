@@ -3,6 +3,13 @@
 //! objects respectively and converts the from and to English. See the
 //! [README](https://github.com/RiddleAndCode/nlsd/blob/master/nlsd/README.md) for more information
 //! on the specifications.
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(feature = "std")]
+extern crate std as core;
+
+#[macro_use]
+extern crate alloc;
 
 mod de;
 mod error;

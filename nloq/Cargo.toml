@@ -1,6 +1,6 @@
 [package]
 name = "nloq"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Julian Popescu <jpopesculian@gmail.com>"]
 edition = "2018"
 license = "MIT OR Apache-2.0"
@@ -13,8 +13,9 @@ keywords = ["natural-language", "parsing", "query"]
 categories = ["parsing", ]
 
 [features]
-default = []
+default = ["std"]
+std = ["nl-parser/std", "object-query/std"]
 
 [dependencies]
-nl-parser = { version = "0.1.0", path = "../parser" }
-object-query = { version = "0.1.0", path = "../query" }
+nl-parser = { version = "0.1.1", path = "../parser", default-features = false }
+object-query = { version = "0.1.3", path = "../query", default-features = false }

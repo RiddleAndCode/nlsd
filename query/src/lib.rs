@@ -1,9 +1,19 @@
 //! A representation of querying an object by either a key or an index. Normally an type implements
 //! `AccessNext` and `AccessNextMut`. The `json` feature will implement this for the
 //! `serde_json::Value` type
+#![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "std")]
+extern crate std as core;
+
+extern crate alloc;
+
+use alloc::borrow::Cow;
+use alloc::string::String;
 use core::iter;
-use std::borrow::Cow;
+
+#[cfg(feature = "json")]
+use alloc::string::ToString;
 
 /// Either a key or an index query
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -413,6 +423,8 @@ impl QuerySet for serde_json::Value {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "json")]
+    use alloc::vec;
     #[cfg(feature = "json")]
     use serde_json::json;
 

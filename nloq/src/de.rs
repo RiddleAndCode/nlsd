@@ -1,6 +1,7 @@
+use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use nl_parser::{parse_next, Parsed};
 use object_query::Query;
-use std::collections::VecDeque;
 
 /// Deserializes a str into an iterator of query parts
 pub struct Deserializer<'de> {
@@ -217,6 +218,7 @@ impl<'a> Iterator for Deserializer<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
 
     #[test]
     fn parse_indexes() {
