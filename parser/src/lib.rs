@@ -1,5 +1,8 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+#[cfg(feature = "std")]
+extern crate std as core;
+
 use core::fmt;
 
 /// Represents either a float or an integer
