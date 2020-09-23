@@ -818,7 +818,16 @@ impl<'a, 'de> de::SeqAccess<'de> for Compound<'a, 'de> {
         } else {
             match self.de.parse_and_expect_token(AND) {
                 Ok(()) => {
-                    let _ = self.de.parse_and_expect_token(ANOTHER)?;
+                    match self.de.parse_next()? {
+                        Parsed::Token(ANOTHER) => (),
+                        Parsed::Str(_) | Parsed::Token(THE) => {
+                            // possible key from a higher scope map
+                            // TODO check if top level and throw error if scope not found
+                            self.de.rollback(start_index);
+                            return Ok(None);
+                        }
+                        _ => return Err(Error::ExpectedKeyWord(ANOTHER)),
+                    }
                 }
                 Err(Error::Parse(ParseError::UnexpectedEof)) => return Ok(None),
                 Err(err) => return Err(err),
@@ -880,6 +889,12 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
         match self.de.peek_next()? {
             Parsed::Token(THE) => {
                 let _ = self.de.parse_token()?;
+            }
+            Parsed::Token(ANOTHER) => {
+                // possible item from a higher scope list
+                // TODO check if top level and throw error if scope not found
+                self.de.rollback(start_index);
+                return Ok(None);
             }
             _ => (),
         }
@@ -1279,6 +1294,18 @@ mod tests {
     #[test]
     fn deserialize_nested_map() -> Result<()> {
         assert_eq!(json!({"a": {"b": 1}, "c": 2}), from_str::<Value>("the object henceforth `the object` where `a` is the object where `b` is 1 and `c` of `the object` is 2")?);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_nested_list_map() -> Result<()> {
+        assert_eq!(json!([{"a": 1}, {"b": 2}]), from_str::<Value>("the list henceforth `the list` where an item is the object where `a` is 1 and another item of `the list` is the object where `b` is 2")?);
+        Ok(())
+    }
+
+    #[test]
+    fn deserialize_nested_map_list() -> Result<()> {
+        assert_eq!(json!({"a": [1], "b": [2]}), from_str::<Value>("the object henceforth `the object` where `a` is the list where an item is 1 and `b` of `the object` is the list where an item is 2")?);
         Ok(())
     }
 
