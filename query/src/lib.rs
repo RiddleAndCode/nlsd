@@ -9,11 +9,8 @@ extern crate std as core;
 extern crate alloc;
 
 use alloc::borrow::Cow;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use core::iter;
-
-#[cfg(feature = "json")]
-use alloc::string::ToString;
 
 /// Either a key or an index query
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -106,6 +103,17 @@ impl<'a> Query<'a> {
                 *index as i64
             }),
             _ => None,
+        }
+    }
+
+    /// An alternative to the `std::borrow::ToOwned` method
+    pub fn to_owned(&self) -> Query<'static> {
+        match self {
+            Query::Index { index, from_last } => Query::Index {
+                index: *index,
+                from_last: *from_last,
+            },
+            Query::Key(key) => Query::Key(Cow::Owned(key.to_string())),
         }
     }
 }
