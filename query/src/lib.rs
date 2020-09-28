@@ -13,7 +13,7 @@ use alloc::string::{String, ToString};
 use core::iter;
 
 /// Either a key or an index query
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum Query<'a> {
     /// The index query. Represents the index (starting at 0) from either the front or the back
     Index { index: usize, from_last: bool },
@@ -115,6 +115,12 @@ impl<'a> Query<'a> {
             },
             Query::Key(key) => Query::Key(Cow::Owned(key.to_string())),
         }
+    }
+}
+
+impl<'a> Clone for Query<'a> {
+    fn clone(&self) -> Query<'static> {
+        self.to_owned()
     }
 }
 
