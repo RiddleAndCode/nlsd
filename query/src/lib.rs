@@ -125,22 +125,22 @@ impl<'a> Clone for Query<'a> {
 }
 
 /// Describes how to access query
-pub trait AccessNext {
-    fn access_next<'a>(&self, query: &Query<'a>) -> Option<&Self>;
+pub trait AccessNext<T = Self> {
+    fn access_next<'a>(&self, query: &Query<'a>) -> Option<&T>;
 }
 
 /// Describes how to access query on a mutable item
-pub trait AccessNextMut {
-    fn access_next_mut<'a>(&mut self, query: &Query<'a>) -> Option<&mut Self>;
+pub trait AccessNextMut<T = Self> {
+    fn access_next_mut<'a>(&mut self, query: &Query<'a>) -> Option<&mut T>;
 }
 
 /// Describes how to access query on an owned item
-pub trait AccessNextOwned: Sized {
-    fn access_next_owned<'a>(self, query: &Query<'a>) -> Option<Self>;
+pub trait AccessNextOwned<T = Self>: Sized {
+    fn access_next_owned<'a>(self, query: &Query<'a>) -> Option<T>;
 }
 
 /// An easily implementable trait to acess a list of queries
-pub trait Access: AccessNext {
+pub trait Access: AccessNext + Sized {
     fn access<'a, I: IntoIterator<Item = &'a Query<'a>>>(&self, queries: I) -> Option<&Self> {
         queries.into_iter().fold(Some(self), |res, query| {
             res.and_then(|res| res.access_next(query))
@@ -149,7 +149,7 @@ pub trait Access: AccessNext {
 }
 
 /// An easily implementable trait to acess a list of queries on a mutable item
-pub trait AccessMut: AccessNextMut {
+pub trait AccessMut: AccessNextMut + Sized {
     fn access_mut<'a, I: IntoIterator<Item = &'a Query<'a>>>(
         &mut self,
         queries: I,
