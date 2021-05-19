@@ -134,6 +134,11 @@ pub trait AccessNextMut {
     fn access_next_mut<'a>(&mut self, query: &Query<'a>) -> Option<&mut Self>;
 }
 
+/// Describes how to access query on an owned item
+pub trait AccessNextOwned: Sized {
+    fn access_next_owned<'a>(self, query: &Query<'a>) -> Option<Self>;
+}
+
 /// An easily implementable trait to acess a list of queries
 pub trait Access: AccessNext {
     fn access<'a, I: IntoIterator<Item = &'a Query<'a>>>(&self, queries: I) -> Option<&Self> {
@@ -151,6 +156,15 @@ pub trait AccessMut: AccessNextMut {
     ) -> Option<&mut Self> {
         queries.into_iter().fold(Some(self), |res, query| {
             res.and_then(|res| res.access_next_mut(query))
+        })
+    }
+}
+
+/// An easily implementable trait to acess a list of queries on an owned item
+pub trait AccessOwned: AccessNextOwned {
+    fn access_owned<'a, I: IntoIterator<Item = &'a Query<'a>>>(self, queries: I) -> Option<Self> {
+        queries.into_iter().fold(Some(self), |res, query| {
+            res.and_then(|res| res.access_next_owned(query))
         })
     }
 }
@@ -372,6 +386,38 @@ impl AccessNextMut for serde_json::Value {
 impl AccessMut for serde_json::Value {}
 
 #[cfg(feature = "json")]
+impl AccessNextOwned for serde_json::Value {
+    fn access_next_owned<'a>(self, query: &Query<'a>) -> Option<Self> {
+        match self {
+            serde_json::Value::Null => None,
+            serde_json::Value::Bool(_) => None,
+            serde_json::Value::Number(_) => None,
+            serde_json::Value::String(_) => None,
+            serde_json::Value::Array(array) => match query {
+                Query::Index { index, from_last } => {
+                    if *from_last {
+                        if *index >= array.len() {
+                            return None;
+                        }
+                        array.get(array.len() - 1 - index).cloned()
+                    } else {
+                        array.get(*index).cloned()
+                    }
+                }
+                Query::Key(_) => None,
+            },
+            serde_json::Value::Object(map) => match query {
+                Query::Index { .. } => None,
+                Query::Key(key) => map.get(&key.to_string()).cloned(),
+            },
+        }
+    }
+}
+
+#[cfg(feature = "json")]
+impl AccessOwned for serde_json::Value {}
+
+#[cfg(feature = "json")]
 impl QuerySetItem for serde_json::Value {
     fn query_set_item<'a>(&mut self, query: &Query<'a>, val: Self) -> SetResult<Self> {
         match self {
@@ -449,6 +495,7 @@ mod tests {
         let query = vec!["a".into()];
         assert_eq!(value.access(&query), Some(&json!(1)));
         assert_eq!(value.access_mut(&query), Some(&mut json!(1)));
+        assert_eq!(value.clone().access_owned(&query), Some(json!(1)));
         let query = vec!["b".into()];
         assert_eq!(value.access(&query), Some(&json!(2)));
         let query = vec!["c".into()];
@@ -462,6 +509,7 @@ mod tests {
         let query = vec![0.into()];
         assert_eq!(value.access(&query), Some(&json!(1)));
         assert_eq!(value.access_mut(&query), Some(&mut json!(1)));
+        assert_eq!(value.clone().access_owned(&query), Some(json!(1)));
         let query = vec![1.into()];
         assert_eq!(value.access(&query), Some(&json!(2)));
         let query = vec![(-1).into()];
@@ -479,6 +527,7 @@ mod tests {
         let query = vec![0.into(), "a".into()];
         assert_eq!(value.access(&query), Some(&json!(1)));
         assert_eq!(value.access_mut(&query), Some(&mut json!(1)));
+        assert_eq!(value.clone().access_owned(&query), Some(json!(1)));
         let query = vec![(-1).into(), "c".into()];
         assert_eq!(value.access(&query), Some(&json!(4)));
         let query = vec![1.into(), (-1).into()];
