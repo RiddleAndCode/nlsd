@@ -5,7 +5,7 @@ use alloc::string::{String, ToString};
 use nl_parser::{
     parse_next, parse_number, parse_string, parse_token, Number, ParseError, ParseResult, Parsed,
 };
-use serde::de;
+use serde::de::{self, Deserialize};
 
 #[cfg(not(feature = "std"))]
 use num_traits::float::FloatCore;
@@ -34,7 +34,7 @@ const AND: &str = "and";
 const ANOTHER: &str = "another";
 
 /// A structure that deserializes NLSD into Rust structures
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Deserializer<'de> {
     src: &'de str,
     index: usize,
@@ -899,15 +899,9 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
             _ => (),
         }
 
-        let res = if let Some(expected_keys) = self.expected_keys {
-            seed.deserialize(MapExpectedKey {
-                de: &mut *self.de,
-                expected_keys,
-                default_dehumanize: Box::new(dehumanize_snake),
-            })?
-        } else {
-            seed.deserialize(MapKey { de: &mut *self.de })?
-        };
+        let mut de_copy = self.de.clone();
+
+        let _ = serde::de::IgnoredAny::deserialize(MapKey { de: &mut *self.de })?;
 
         // TODO check if top level and throw error if scope not found
         match self.de.peek_next()? {
@@ -926,6 +920,16 @@ impl<'a, 'de> de::MapAccess<'de> for Compound<'a, 'de> {
         }
 
         self.de.parse_and_expect_token(IS)?;
+
+        let res = if let Some(expected_keys) = self.expected_keys {
+            seed.deserialize(MapExpectedKey {
+                de: &mut de_copy,
+                expected_keys,
+                default_dehumanize: Box::new(dehumanize_snake),
+            })?
+        } else {
+            seed.deserialize(MapKey { de: &mut de_copy })?
+        };
 
         self.first = false;
         Ok(Some(res))
